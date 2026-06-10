@@ -1,35 +1,75 @@
 /* =====================================================
-   main.js — 숏츠 메이커 (비주얼 크롭 UI)
+   main.js — 숏츠 메이커 (크롭·블러·단색 편집 UI)
+
+   역할:
+     · 파일 업로드 (XHR — 진행률 % 실시간 표시)
+     · YouTube URL 가져오기
+     · 모드 탭: ✂️ 크롭 / 🌫 블러 배경 / 🎨 단색 배경
+     · 크롭 모드: 드래그 박스 UI (마우스·터치)
+     · 블러·단색 모드: 서버 프리뷰 (/preview → JPEG)
+     · 처리: /process → job_id → SSE 진행률 구독
+     · 대본 추출: /transcribe → job_id → SSE 단계 표시
    ===================================================== */
 
 // ── 전역 상태 ────────────────────────────────────────
-let uploadedFilename = null;
-let videoDim = { w: 0, h: 0 };   // 실제 영상 픽셀 크기
-let cropPx   = { x: 0, y: 0, w: 0, h: 0 };  // 크롭 영역 (실제 픽셀)
-const MIN_PX = 20;  // 크롭 박스 최소 크기
+let uploadedFilename = null;   // 서버 UUID 파일명 (예: a3f9c1d2.mp4)
+let originalBase     = null;   // 결과 파일명에 쓸 원본 베이스 (예: '여름휴가')
+let videoDim = { w: 0, h: 0 }; // 실제 영상 픽셀 크기 (크롭 좌표 계산 기준)
+let cropPx   = { x: 0, y: 0, w: 0, h: 0 };  // 크롭 영역 (픽셀 단위)
+let currentMode = 'crop';      // 현재 편집 모드: 'crop' | 'blur' | 'solid'
+let blurLevel   = 20;          // 블러 강도 (0~40)
+let solidColor  = '000000';    // 단색 배경 색상 (hex, # 없이)
+const MIN_PX = 20;             // 크롭 박스 최소 픽셀 크기
+
+// 모드별 적용 버튼 레이블
+const PROCESS_LABELS = {
+  crop:  '✂️ 크롭 적용',
+  blur:  '🌫 블러 배경 적용',
+  solid: '🎨 단색 배경 적용',
+};
 
 // ── DOM 참조 ─────────────────────────────────────────
-const dropZone     = document.getElementById('drop-zone');
-const fileInput    = document.getElementById('file-input');
-const cropCard     = document.getElementById('crop-card');
-const actionCard   = document.getElementById('action-card');
-const cropContainer = document.getElementById('crop-container');
-const previewVideo = document.getElementById('preview-video');
-const cropBox      = document.getElementById('crop-box');
-const lock916      = document.getElementById('lock-916');
-const resetBtn     = document.getElementById('reset-btn');
-const processBtn   = document.getElementById('process-btn');
-const progressSec  = document.getElementById('progress-section');
-const resultSec    = document.getElementById('result-section');
-const cropDims     = document.getElementById('crop-dims');
-const ratioBadge   = document.getElementById('ratio-badge');
-const toast        = document.getElementById('toast');
+const ytUrl              = document.getElementById('yt-url');
+const ytBtn              = document.getElementById('yt-btn');
+const dropZone           = document.getElementById('drop-zone');
+const uploadProgressWrap = document.getElementById('upload-progress-wrap');
+const uploadProgressFill = document.getElementById('upload-progress-fill');
+const fileInput          = document.getElementById('file-input');
+const editCard           = document.getElementById('edit-card');
+const actionCard         = document.getElementById('action-card');
+const cropContainer      = document.getElementById('crop-container');
+const previewVideo       = document.getElementById('preview-video');
+const cropBox            = document.getElementById('crop-box');
+const lock916            = document.getElementById('lock-916');
+const resetBtn           = document.getElementById('reset-btn');
+const processBtn         = document.getElementById('process-btn');
+const transcribeBtn      = document.getElementById('transcribe-btn');
+const progressSec        = document.getElementById('progress-section');
+const progressFill       = document.getElementById('progress-fill');
+const progressText       = document.getElementById('progress-text');
+const resultSec          = document.getElementById('result-section');
+const cropDims           = document.getElementById('crop-dims');
+const ratioBadge         = document.getElementById('ratio-badge');
+const blurSlider         = document.getElementById('blur-slider');
+const blurValueEl        = document.getElementById('blur-value');
+const blurPreviewBtn     = document.getElementById('blur-preview-btn');
+const blurPreviewWrap    = document.getElementById('blur-preview-wrap');
+const blurPreviewImg     = document.getElementById('blur-preview-img');
+const solidColorPicker   = document.getElementById('solid-color-picker');
+const solidPreviewBtn    = document.getElementById('solid-preview-btn');
+const solidPreviewWrap   = document.getElementById('solid-preview-wrap');
+const solidPreviewImg    = document.getElementById('solid-preview-img');
+const solidColorLabel    = document.getElementById('solid-color-label');
+const toast              = document.getElementById('toast');
 
 /* ====================================================
-   업로드
+   업로드 — XHR (진행률 % 실시간 표시)
+
+   fetch()는 업로드 진행률을 알 수 없으므로 XHR을 사용한다.
+   xhr.upload.onprogress 이벤트로 전송된 바이트 수를 받아 % 계산.
    ==================================================== */
 dropZone.addEventListener('click', () => fileInput.click());
-dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.classList.add('dragover'); });
 dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
 dropZone.addEventListener('drop', e => {
   e.preventDefault();
@@ -38,27 +78,42 @@ dropZone.addEventListener('drop', e => {
 });
 fileInput.addEventListener('change', () => { if (fileInput.files[0]) uploadFile(fileInput.files[0]); });
 
-async function uploadFile(file) {
+function uploadFile(file) {
   if (file.size > 500 * 1024 * 1024) { showToast('파일이 500MB를 초과합니다.', 'error'); return; }
 
-  dropZone.innerHTML = `<strong>업로드 중...</strong><p>${file.name}</p>`;
+  dropZone.innerHTML = `<strong>업로드 중... 0%</strong><p>${file.name}</p>`;
+  uploadProgressWrap.style.display = 'block';
+  uploadProgressFill.style.width   = '0%';
 
   const form = new FormData();
   form.append('video', file);
 
-  try {
-    const res  = await fetch('/upload', { method: 'POST', body: form });
-    const data = await res.json();
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', '/upload');
+
+  xhr.upload.onprogress = e => {
+    if (e.lengthComputable) {
+      const pct = Math.round(e.loaded / e.total * 100);
+      dropZone.querySelector('strong').textContent = `업로드 중... ${pct}%`;
+      uploadProgressFill.style.width = pct + '%';
+    }
+  };
+
+  xhr.onload = () => {
+    uploadProgressWrap.style.display = 'none';
+    let data;
+    try { data = JSON.parse(xhr.responseText); } catch { showToast('서버 오류', 'error'); resetDrop(); return; }
+
     if (!data.ok) { showToast(data.error || '업로드 실패', 'error'); resetDrop(); return; }
 
     uploadedFilename = data.filename;
+    originalBase     = data.original_base || 'video';
 
     dropZone.innerHTML = `
       <strong>✅ ${file.name}</strong>
       <p style="color:var(--success)">업로드 완료 · 다시 클릭하면 교체</p>
     `;
 
-    // 비디오 정보 표시
     const info = data.info || {};
     if (info.width) {
       document.getElementById('video-info').style.display = 'flex';
@@ -66,11 +121,17 @@ async function uploadFile(file) {
         `해상도 <span>${info.width}×${info.height}</span> &nbsp; 길이 <span>${info.duration_str}</span>`;
     }
 
-    // 크롭 UI 초기화
     initCropUI(data.filename, info);
     showToast('업로드 완료!', 'success');
+  };
 
-  } catch { showToast('네트워크 오류', 'error'); resetDrop(); }
+  xhr.onerror = () => {
+    uploadProgressWrap.style.display = 'none';
+    showToast('네트워크 오류', 'error');
+    resetDrop();
+  };
+
+  xhr.send(form);
 }
 
 /* ====================================================
@@ -79,35 +140,31 @@ async function uploadFile(file) {
 function initCropUI(filename, info) {
   videoDim = { w: info.width || 1280, h: info.height || 720 };
 
-  // 비디오 미리보기 소스 설정
-  previewVideo.src = `/uploads/${filename}`;
+  previewVideo.src         = `/uploads/${filename}`;
   previewVideo.currentTime = 0;
 
-  // 비디오 로드 완료 후 크롭 박스 초기 위치 설정
+  // { once: true }: 같은 파일 재업로드 시 이벤트 중복 방지
   previewVideo.addEventListener('loadedmetadata', () => {
     initCropBox();
-    cropCard.style.display  = 'block';
-    actionCard.style.display = 'block';
-    // 9:16 여부 감지
+    editCard.style.display   = 'block';
+    actionCard.style.display = 'flex';
+
     const ratio = videoDim.w / videoDim.h;
-    const is916 = Math.abs(ratio - 9 / 16) < 0.01;
-    ratioBadge.style.display = is916 ? 'block' : 'none';
+    ratioBadge.style.display = Math.abs(ratio - 9 / 16) < 0.01 ? 'block' : 'none';
   }, { once: true });
 }
 
 function initCropBox() {
   const vw = videoDim.w, vh = videoDim.h;
-  const ratio = vw / vh;
+  const ratio  = vw / vh;
   const target = 9 / 16;
 
   if (ratio > target + 0.01) {
-    // 가로가 더 넓은 경우 → 9:16 크롭 박스를 가운데에 초기 배치
+    // 가로 영상: 9:16 폭으로 가운데 자르기
     const cw = Math.round(vh * target);
-    const cx = Math.round((vw - cw) / 2);
-    cropPx = { x: cx, y: 0, w: cw, h: vh };
-    lock916.checked = true;  // 9:16 잠금 자동 활성화
+    cropPx = { x: Math.round((vw - cw) / 2), y: 0, w: cw, h: vh };
+    lock916.checked = true;
   } else {
-    // 이미 세로이거나 9:16인 경우 → 전체 선택
     cropPx = { x: 0, y: 0, w: vw, h: vh };
   }
 
@@ -115,43 +172,43 @@ function initCropBox() {
 }
 
 /* ====================================================
-   크롭 박스 렌더 (픽셀 → 화면 좌표 변환)
+   크롭 박스 렌더 (픽셀 좌표 → 화면 CSS 좌표 변환)
+
+   cropPx: 실제 영상 픽셀 기준 좌표 (서버로 전송)
+   CSS 좌표: 화면에 표시된 영상 크기 기준이므로 scale로 변환 필요
    ==================================================== */
 function renderCropBox() {
-  // 컨테이너 실제 표시 크기 계산
   const displayW = cropContainer.offsetWidth;
   const displayH = displayW / videoDim.w * videoDim.h;
-
-  const scaleX = displayW / videoDim.w;
-  const scaleY = displayH / videoDim.h;
+  const scaleX   = displayW / videoDim.w;
+  const scaleY   = displayH / videoDim.h;
 
   cropBox.style.left   = (cropPx.x * scaleX) + 'px';
   cropBox.style.top    = (cropPx.y * scaleY) + 'px';
   cropBox.style.width  = (cropPx.w * scaleX) + 'px';
   cropBox.style.height = (cropPx.h * scaleY) + 'px';
 
-  // 치수 텍스트 업데이트
   const w = Math.round(cropPx.w);
   const h = Math.round(cropPx.h);
-  const r = (w / h).toFixed(2);
-  cropDims.textContent = `결과: ${w} × ${h} px  (${r} : 1)`;
+  cropDims.textContent = `결과: ${w} × ${h} px  (${(w / h).toFixed(2)} : 1)`;
 }
 
-// 창 크기 변경 시 재렌더
+// 창 크기가 바뀌면 scale이 달라지므로 박스 위치를 다시 계산
 window.addEventListener('resize', () => { if (uploadedFilename) renderCropBox(); });
 
 /* ====================================================
    드래그 핸들 이벤트
-   ==================================================== */
-let drag = null; // { dir, startCX, startCY, startCrop }
 
-// 핸들 각각에 이벤트 등록
+   8개 핸들(n·s·e·w·nw·ne·sw·se)과 박스 중앙 이동.
+   마우스·터치 모두 지원. document에서 move·up 이벤트를 받아
+   박스 바깥으로 빠르게 드래그해도 끊기지 않는다.
+   ==================================================== */
+let drag = null;  // { dir, startCX, startCY, startCrop }
+
 cropBox.querySelectorAll('.handle').forEach(handle => {
   handle.addEventListener('mousedown',  e => startDrag(e, handle.dataset.dir));
   handle.addEventListener('touchstart', e => startDrag(e, handle.dataset.dir), { passive: false });
 });
-
-// 크롭 박스 자체 클릭 → 이동(move)
 cropBox.addEventListener('mousedown',  e => { if (e.target === cropBox) startDrag(e, 'move'); });
 cropBox.addEventListener('touchstart', e => { if (e.target === cropBox) startDrag(e, 'move'); }, { passive: false });
 
@@ -162,19 +219,19 @@ function startDrag(e, dir) {
   drag = { dir, startCX: pt.x, startCY: pt.y, startCrop: { ...cropPx } };
 }
 
-document.addEventListener('mousemove',  onDragMove);
-document.addEventListener('touchmove',  onDragMove, { passive: false });
-document.addEventListener('mouseup',    () => { drag = null; });
-document.addEventListener('touchend',   () => { drag = null; });
+document.addEventListener('mousemove', onDragMove);
+document.addEventListener('touchmove', onDragMove, { passive: false });
+document.addEventListener('mouseup',   () => { drag = null; });
+document.addEventListener('touchend',  () => { drag = null; });
 
 function onDragMove(e) {
   if (!drag) return;
   e.preventDefault();
 
-  const pt = getPoint(e);
-  // 마우스/터치 이동량을 실제 영상 픽셀로 변환
+  const pt       = getPoint(e);
   const displayW = cropContainer.offsetWidth;
   const displayH = displayW / videoDim.w * videoDim.h;
+  // 화면 이동량을 실제 영상 픽셀 단위로 변환
   const dvx = (pt.x - drag.startCX) / displayW  * videoDim.w;
   const dvy = (pt.y - drag.startCY) / displayH * videoDim.h;
 
@@ -183,72 +240,61 @@ function onDragMove(e) {
   let { x, y, w, h } = sc;
 
   switch (drag.dir) {
-    // ── 이동 ───────────────────────────────────────
     case 'move':
       x = clamp(sc.x + dvx, 0, videoDim.w - sc.w);
       y = clamp(sc.y + dvy, 0, videoDim.h - sc.h);
       break;
-
-    // ── 위쪽 핸들 ──────────────────────────────────
     case 'n': {
       const ny = clamp(sc.y + dvy, 0, sc.y + sc.h - MIN_PX);
-      h = sc.h - (ny - sc.y);
-      y = ny;
-      if (lock) { w = h * (9/16); x = clamp(sc.x + (sc.w - w) / 2, 0, videoDim.w - w); }
+      h = sc.h - (ny - sc.y); y = ny;
+      if (lock) { w = h * (9 / 16); x = clamp(sc.x + (sc.w - w) / 2, 0, videoDim.w - w); }
       break;
     }
-    // ── 아래쪽 핸들 ────────────────────────────────
     case 's': {
       h = clamp(sc.h + dvy, MIN_PX, videoDim.h - sc.y);
-      if (lock) { w = h * (9/16); x = clamp(sc.x + (sc.w - w) / 2, 0, videoDim.w - w); }
+      if (lock) { w = h * (9 / 16); x = clamp(sc.x + (sc.w - w) / 2, 0, videoDim.w - w); }
       break;
     }
-    // ── 오른쪽 핸들 ────────────────────────────────
     case 'e': {
       w = clamp(sc.w + dvx, MIN_PX, videoDim.w - sc.x);
-      if (lock) { h = w * (16/9); y = clamp(sc.y + (sc.h - h) / 2, 0, videoDim.h - h); }
+      if (lock) { h = w * (16 / 9); y = clamp(sc.y + (sc.h - h) / 2, 0, videoDim.h - h); }
       break;
     }
-    // ── 왼쪽 핸들 ──────────────────────────────────
     case 'w': {
       const nx = clamp(sc.x + dvx, 0, sc.x + sc.w - MIN_PX);
-      w = sc.w - (nx - sc.x);
-      x = nx;
-      if (lock) { h = w * (16/9); y = clamp(sc.y + (sc.h - h) / 2, 0, videoDim.h - h); }
+      w = sc.w - (nx - sc.x); x = nx;
+      if (lock) { h = w * (16 / 9); y = clamp(sc.y + (sc.h - h) / 2, 0, videoDim.h - h); }
       break;
     }
-    // ── 모서리 핸들들 ──────────────────────────────
     case 'nw': {
       const nx = clamp(sc.x + dvx, 0, sc.x + sc.w - MIN_PX);
       const ny = clamp(sc.y + dvy, 0, sc.y + sc.h - MIN_PX);
-      w = sc.w - (nx - sc.x);  h = sc.h - (ny - sc.y);
-      x = nx; y = ny;
-      if (lock) { h = w * (16/9); y = sc.y + sc.h - h; }
+      w = sc.w - (nx - sc.x); h = sc.h - (ny - sc.y); x = nx; y = ny;
+      if (lock) { h = w * (16 / 9); y = sc.y + sc.h - h; }
       break;
     }
     case 'ne': {
       w = clamp(sc.w + dvx, MIN_PX, videoDim.w - sc.x);
       const ny2 = clamp(sc.y + dvy, 0, sc.y + sc.h - MIN_PX);
       h = sc.h - (ny2 - sc.y); y = ny2;
-      if (lock) { h = w * (16/9); y = sc.y + sc.h - h; }
+      if (lock) { h = w * (16 / 9); y = sc.y + sc.h - h; }
       break;
     }
     case 'sw': {
       const nx2 = clamp(sc.x + dvx, 0, sc.x + sc.w - MIN_PX);
       w = sc.w - (nx2 - sc.x); x = nx2;
       h = clamp(sc.h + dvy, MIN_PX, videoDim.h - sc.y);
-      if (lock) { h = w * (16/9); }
+      if (lock) { h = w * (16 / 9); }
       break;
     }
     case 'se': {
       w = clamp(sc.w + dvx, MIN_PX, videoDim.w - sc.x);
       h = clamp(sc.h + dvy, MIN_PX, videoDim.h - sc.y);
-      if (lock) { h = w * (16/9); }
+      if (lock) { h = w * (16 / 9); }
       break;
     }
   }
 
-  // 비디오 범위를 벗어나지 않게 보정
   w = clamp(w, MIN_PX, videoDim.w);
   h = clamp(h, MIN_PX, videoDim.h);
   x = clamp(x, 0, videoDim.w - w);
@@ -258,56 +304,329 @@ function onDragMove(e) {
   renderCropBox();
 }
 
-/* ====================================================
-   초기화 버튼
-   ==================================================== */
 resetBtn.addEventListener('click', initCropBox);
 
 /* ====================================================
-   처리 (크롭 적용)
+   모드 탭 전환
+   ==================================================== */
+document.querySelectorAll('.mode-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    currentMode = tab.dataset.mode;
+    document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    document.querySelectorAll('.mode-panel').forEach(p => p.style.display = 'none');
+    document.getElementById(`panel-${currentMode}`).style.display = 'block';
+    processBtn.textContent = PROCESS_LABELS[currentMode];
+  });
+});
+
+/* ====================================================
+   블러 패널 — 강도 슬라이더
+   ==================================================== */
+blurSlider.addEventListener('input', () => {
+  blurLevel = parseInt(blurSlider.value, 10);
+  blurValueEl.textContent = blurLevel;
+});
+
+blurPreviewBtn.addEventListener('click', () => requestPreview('blur'));
+
+/* ====================================================
+   단색 패널 — 색상 프리셋 + 피커
+   ==================================================== */
+const COLOR_NAMES = {
+  '000000': '검정', 'ffffff': '흰색', '1a1a2e': '딥 블루',
+  '2d1b69': '퍼플', '0f3460': '다크 블루', '16213e': '네이비',
+};
+
+function selectColor(hex) {
+  solidColor = hex.replace('#', '').toLowerCase();
+  solidColorPicker.value    = '#' + solidColor;
+  solidColorLabel.textContent = `선택: ${COLOR_NAMES[solidColor] || '사용자 지정'} (#${solidColor})`;
+  document.querySelectorAll('.color-preset').forEach(b => {
+    b.classList.toggle('active', b.dataset.color === solidColor);
+  });
+}
+
+document.querySelectorAll('.color-preset').forEach(btn => {
+  btn.addEventListener('click', () => selectColor(btn.dataset.color));
+});
+
+solidColorPicker.addEventListener('input', () => selectColor(solidColorPicker.value));
+
+solidPreviewBtn.addEventListener('click', () => requestPreview('solid'));
+
+/* ====================================================
+   서버 프리뷰 요청
+
+   블러·단색 모드에서 "미리보기" 버튼 클릭 시 호출.
+   서버가 첫 프레임을 실제와 동일한 ffmpeg 필터로 처리해
+   JPEG를 반환하므로 최종 결과물과 화면이 정확히 일치한다.
+   ==================================================== */
+async function requestPreview(mode) {
+  if (!uploadedFilename) { showToast('먼저 영상을 올려주세요.', 'error'); return; }
+
+  const btn  = mode === 'blur' ? blurPreviewBtn  : solidPreviewBtn;
+  const wrap = mode === 'blur' ? blurPreviewWrap : solidPreviewWrap;
+  const img  = mode === 'blur' ? blurPreviewImg  : solidPreviewImg;
+
+  const origText      = btn.textContent;
+  btn.disabled        = true;
+  btn.textContent     = '⏳ 생성 중...';
+
+  const body = { filename: uploadedFilename, mode };
+  if (mode === 'blur')  body.blur  = blurLevel;
+  else                  body.color = solidColor;
+
+  try {
+    const res = await fetch('/preview', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      showToast(j.error || '프리뷰 생성 실패', 'error');
+      return;
+    }
+
+    const blob = await res.blob();
+    // 이전 Blob URL이 있으면 메모리 해제 후 교체
+    if (img.src && img.src.startsWith('blob:')) URL.revokeObjectURL(img.src);
+    img.src            = URL.createObjectURL(blob);
+    wrap.style.display = 'block';
+
+  } catch { showToast('프리뷰 오류', 'error'); }
+  finally {
+    btn.disabled    = false;
+    btn.textContent = origText;
+  }
+}
+
+/* ====================================================
+   처리 (크롭·블러·단색 적용)
+
+   /process 로 모드와 파라미터를 전송하면 job_id를 받고,
+   SSE /progress/<job_id> 를 구독해 진행률 바를 갱신한다.
    ==================================================== */
 processBtn.addEventListener('click', async () => {
   if (!uploadedFilename) return;
 
-  processBtn.disabled    = true;
+  processBtn.disabled     = true;
   resultSec.style.display = 'none';
-  progressSec.style.display = 'block';
+  showProgress('처리 시작 중...', 0);
+
+  const body = {
+    filename:      uploadedFilename,
+    original_base: originalBase,
+    mode:          currentMode,
+  };
+  if (currentMode === 'crop') {
+    body.crop = {
+      x: Math.round(cropPx.x), y: Math.round(cropPx.y),
+      w: Math.round(cropPx.w), h: Math.round(cropPx.h),
+    };
+  } else if (currentMode === 'blur') {
+    body.blur = blurLevel;
+  } else {
+    body.color = solidColor;
+  }
 
   try {
     const res  = await fetch('/process', {
-      method: 'POST',
+      method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        filename: uploadedFilename,
-        crop: {
-          x: Math.round(cropPx.x),
-          y: Math.round(cropPx.y),
-          w: Math.round(cropPx.w),
-          h: Math.round(cropPx.h),
-        },
-      }),
+      body:    JSON.stringify(body),
     });
     const data = await res.json();
 
-    progressSec.style.display = 'none';
+    if (!data.ok) {
+      showToast(data.error || '처리 실패', 'error');
+      hideProgress();
+      processBtn.disabled = false;
+      return;
+    }
 
-    if (!data.ok) { showToast(data.error || '처리 실패', 'error'); processBtn.disabled = false; return; }
+    subscribeProgress(data.job_id, payload => {
+      if (payload.error) {
+        showToast(payload.error, 'error');
+        hideProgress();
+        processBtn.disabled = false;
+        return;
+      }
 
-    const dlBtn = document.getElementById('download-btn');
-    dlBtn.href     = `/download/${data.result}`;
-    dlBtn.download = data.result;
-    resultSec.style.display = 'block';
-    showToast('완성!', 'success');
+      updateProgress(payload.pct, payload.msg || '처리 중...');
+
+      if (payload.done) {
+        // 원본이 output/ 으로 이동됐으므로 대본 추출 시 올바른 경로를 참조하도록 갱신
+        if (payload.original) uploadedFilename = payload.original;
+        hideProgress();
+        const dlBtn = document.getElementById('download-btn');
+        dlBtn.href     = `/download/${payload.result}`;
+        dlBtn.download = payload.result;
+        resultSec.style.display = 'block';
+        showToast('완성!', 'success');
+      }
+    });
 
   } catch {
-    progressSec.style.display = 'none';
+    hideProgress();
     processBtn.disabled = false;
     showToast('오류가 발생했습니다.', 'error');
   }
 });
 
 /* ====================================================
-   유틸리티
+   대본 추출 (Whisper STT → SRT)
+
+   SSE로 3단계 진행 표시: 모델 준비 → 음성 인식 → 저장
+   완료 시 SRT 파일 다운로드가 자동으로 시작된다.
+   ==================================================== */
+transcribeBtn.addEventListener('click', async () => {
+  if (!uploadedFilename) return;
+
+  transcribeBtn.disabled = true;
+  showProgress('대본 추출 준비 중...', 0);
+
+  try {
+    const res  = await fetch('/transcribe', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ filename: uploadedFilename, original_base: originalBase }),
+    });
+    const data = await res.json();
+
+    if (!data.ok) {
+      showToast(data.error || '대본 추출 실패', 'error');
+      hideProgress();
+      transcribeBtn.disabled = false;
+      return;
+    }
+
+    subscribeProgress(data.job_id, payload => {
+      if (payload.error) {
+        showToast(payload.error, 'error');
+        hideProgress();
+        transcribeBtn.disabled = false;
+        return;
+      }
+
+      updateProgress(payload.pct, payload.msg || '대본 추출 중...');
+
+      if (payload.done && payload.srt) {
+        hideProgress();
+        const a = document.createElement('a');
+        a.href     = `/download/${payload.srt}`;
+        a.download = payload.srt;
+        a.click();
+        showToast('대본 추출 완료!', 'success');
+        transcribeBtn.disabled = false;
+      }
+    });
+
+  } catch {
+    hideProgress();
+    transcribeBtn.disabled = false;
+    showToast('오류가 발생했습니다.', 'error');
+  }
+});
+
+/* ====================================================
+   YouTube 가져오기
+   ==================================================== */
+ytBtn.addEventListener('click', fetchYoutube);
+ytUrl.addEventListener('keydown', e => { if (e.key === 'Enter') fetchYoutube(); });
+
+async function fetchYoutube() {
+  const url = ytUrl.value.trim();
+  if (!url) return;
+
+  ytBtn.disabled    = true;
+  ytBtn.textContent = '⏳ 다운로드 중...';
+  dropZone.innerHTML = `<strong>YouTube 영상 다운로드 중...</strong><p>${url}</p>`;
+
+  try {
+    const res  = await fetch('/fetch-youtube', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ url }),
+    });
+    const data = await res.json();
+
+    if (!data.ok) { showToast(data.error || '다운로드 실패', 'error'); resetDrop(); return; }
+
+    uploadedFilename = data.filename;
+    originalBase     = data.original_base || 'video';
+
+    dropZone.innerHTML = `
+      <strong>✅ ${data.original_base}</strong>
+      <p style="color:var(--success)">YouTube 다운로드 완료 · 다시 클릭하면 교체</p>
+    `;
+
+    const info = data.info || {};
+    if (info.width) {
+      document.getElementById('video-info').style.display = 'flex';
+      document.getElementById('video-info').innerHTML =
+        `해상도 <span>${info.width}×${info.height}</span> &nbsp; 길이 <span>${info.duration_str}</span>`;
+    }
+
+    initCropUI(data.filename, info);
+    showToast('YouTube 영상 준비 완료!', 'success');
+    ytUrl.value = '';
+
+  } catch {
+    showToast('네트워크 오류', 'error');
+    resetDrop();
+  } finally {
+    ytBtn.disabled    = false;
+    ytBtn.textContent = '▶ 가져오기';
+  }
+}
+
+/* ====================================================
+   SSE 진행률 구독 헬퍼
+
+   EventSource로 /progress/<job_id> 를 구독하고,
+   수신한 JSON 페이로드를 onData 콜백에 전달한다.
+   done 또는 error 수신 시 연결을 닫는다.
+   ==================================================== */
+function subscribeProgress(jobId, onData) {
+  const es = new EventSource(`/progress/${jobId}`);
+
+  es.onmessage = e => {
+    let payload;
+    try { payload = JSON.parse(e.data); } catch { return; }
+    onData(payload);
+    if (payload.done || payload.error) es.close();
+  };
+
+  es.onerror = () => {
+    es.close();
+    onData({ done: true, error: '연결 오류가 발생했습니다.' });
+  };
+}
+
+/* ====================================================
+   진행 바 헬퍼
+   ==================================================== */
+function showProgress(msg, pct) {
+  progressSec.style.display = 'block';
+  progressFill.style.width  = (pct || 0) + '%';
+  progressText.textContent  = msg || '처리 중...';
+}
+
+function updateProgress(pct, msg) {
+  progressFill.style.width = pct + '%';
+  if (msg) progressText.textContent = msg;
+}
+
+function hideProgress() {
+  progressSec.style.display = 'none';
+  progressFill.style.width  = '0%';
+}
+
+/* ====================================================
+   유틸리티 함수
    ==================================================== */
 function clamp(v, min, max) { return Math.min(Math.max(v, min), max); }
 
@@ -318,12 +637,14 @@ function getPoint(e) {
 
 function resetDrop() {
   dropZone.innerHTML = `<strong>영상을 여기에 끌어다 놓거나 클릭하세요</strong><p>MP4, MOV, AVI, MKV, WebM · 최대 500MB</p>`;
+  uploadProgressWrap.style.display = 'none';
+  uploadProgressFill.style.width   = '0%';
 }
 
 let toastTimer;
 function showToast(msg, type = '') {
   clearTimeout(toastTimer);
-  toast.textContent  = msg;
-  toast.className    = 'show ' + type;
+  toast.textContent = msg;
+  toast.className   = 'show ' + type;
   toastTimer = setTimeout(() => { toast.className = ''; }, 3000);
 }

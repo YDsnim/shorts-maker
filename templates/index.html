@@ -25,52 +25,117 @@
     </div>
     <input type="file" id="file-input" accept="video/*">
 
-    <div id="video-info"></div>
-  </div>
-
-  <!-- ── 2단계: 크롭 (업로드 후 표시) ───────────────────── -->
-  <div class="card" id="crop-card" style="display:none">
-    <div class="card-title"><span class="icon">✂️</span> 자르기</div>
-
-    <!-- 비디오 미리보기 + 크롭 오버레이 -->
-    <div id="crop-container">
-      <video id="preview-video" preload="metadata" playsinline muted></video>
-
-      <!-- 크롭 박스 (드래그 핸들 포함) -->
-      <div id="crop-box">
-        <div class="handle h-nw" data-dir="nw"></div>
-        <div class="handle h-n"  data-dir="n"></div>
-        <div class="handle h-ne" data-dir="ne"></div>
-        <div class="handle h-w"  data-dir="w"></div>
-        <div class="handle h-e"  data-dir="e"></div>
-        <div class="handle h-sw" data-dir="sw"></div>
-        <div class="handle h-s"  data-dir="s"></div>
-        <div class="handle h-se" data-dir="se"></div>
+    <!-- 업로드 진행률 바 (XHR 전송 중 % 표시) -->
+    <div id="upload-progress-wrap" style="display:none">
+      <div class="progress-bar-wrap" style="margin-top:10px;margin-bottom:0">
+        <div class="progress-bar" id="upload-progress-fill"></div>
       </div>
     </div>
 
-    <!-- 컨트롤 -->
-    <div class="crop-controls">
-      <label class="toggle-label">
-        <input type="checkbox" id="lock-916">
-        <span class="toggle-pill"></span>
-        9:16 비율 고정
-      </label>
-      <button class="btn-ghost" id="reset-btn">초기화</button>
+    <div class="or-divider"><span>또는</span></div>
+
+    <div id="yt-input-wrap">
+      <input type="url" id="yt-url" placeholder="YouTube URL 붙여넣기 (예: https://youtu.be/...)" autocomplete="off">
+      <button class="btn btn-yt" id="yt-btn">▶ 가져오기</button>
     </div>
-    <div id="crop-dims">— × — px</div>
-    <div id="ratio-badge" style="display:none" class="badge-ok">이미 9:16 비율입니다</div>
+
+    <div id="video-info"></div>
   </div>
 
-  <!-- ── 3단계: 적용 버튼 ────────────────────────── -->
+  <!-- ── 2단계: 편집 방식 선택 (업로드 후 표시) ───── -->
+  <div class="card" id="edit-card" style="display:none">
+    <div class="card-title"><span class="icon">🎨</span> 편집 방식</div>
+
+    <!-- 모드 탭: 크롭 / 블러 배경 / 단색 배경 -->
+    <div class="mode-tabs">
+      <button class="mode-tab active" data-mode="crop">✂️ 크롭</button>
+      <button class="mode-tab" data-mode="blur">🌫 블러 배경</button>
+      <button class="mode-tab" data-mode="solid">🎨 단색 배경</button>
+    </div>
+
+    <!-- ── 크롭 패널 ─────────────────────────── -->
+    <div class="mode-panel" id="panel-crop">
+
+      <!-- 비디오 미리보기 + 크롭 오버레이 -->
+      <div id="crop-container">
+        <video id="preview-video" preload="metadata" playsinline muted></video>
+
+        <!-- 크롭 박스 (드래그 핸들 포함) -->
+        <div id="crop-box">
+          <div class="handle h-nw" data-dir="nw"></div>
+          <div class="handle h-n"  data-dir="n"></div>
+          <div class="handle h-ne" data-dir="ne"></div>
+          <div class="handle h-w"  data-dir="w"></div>
+          <div class="handle h-e"  data-dir="e"></div>
+          <div class="handle h-sw" data-dir="sw"></div>
+          <div class="handle h-s"  data-dir="s"></div>
+          <div class="handle h-se" data-dir="se"></div>
+        </div>
+      </div>
+
+      <div class="crop-controls">
+        <label class="toggle-label">
+          <input type="checkbox" id="lock-916">
+          <span class="toggle-pill"></span>
+          9:16 비율 고정
+        </label>
+        <button class="btn-ghost" id="reset-btn">초기화</button>
+      </div>
+      <div id="crop-dims">— × — px</div>
+      <div id="ratio-badge" style="display:none" class="badge-ok">이미 9:16 비율입니다</div>
+
+    </div><!-- /panel-crop -->
+
+    <!-- ── 블러 배경 패널 ────────────────────── -->
+    <div class="mode-panel" id="panel-blur" style="display:none">
+      <p class="mode-desc">
+        원본 영상을 9:16 화면 안에 그대로 유지하고, 빈 배경을 흐리게 채웁니다.<br>
+        <small>크롭과 달리 영상 내용이 잘리지 않습니다.</small>
+      </p>
+      <div class="slider-row">
+        <span class="slider-label">블러 강도</span>
+        <input type="range" id="blur-slider" min="0" max="40" value="20">
+        <span id="blur-value" class="slider-val">20</span>
+      </div>
+      <button class="btn btn-outline" id="blur-preview-btn" style="margin-top:14px">🔍 미리보기</button>
+      <div class="preview-wrap" id="blur-preview-wrap" style="display:none">
+        <img id="blur-preview-img" alt="블러 배경 미리보기">
+      </div>
+    </div><!-- /panel-blur -->
+
+    <!-- ── 단색 배경 패널 ────────────────────── -->
+    <div class="mode-panel" id="panel-solid" style="display:none">
+      <p class="mode-desc">
+        원본 영상을 9:16 화면 안에 배치하고, 빈 여백을 선택한 색으로 채웁니다.
+      </p>
+      <div class="color-presets">
+        <button class="color-preset active" data-color="000000" style="background:#000000" title="검정"></button>
+        <button class="color-preset" data-color="ffffff"        style="background:#ffffff"        title="흰색"></button>
+        <button class="color-preset" data-color="1a1a2e"        style="background:#1a1a2e"        title="딥 블루"></button>
+        <button class="color-preset" data-color="2d1b69"        style="background:#2d1b69"        title="퍼플"></button>
+        <button class="color-preset" data-color="0f3460"        style="background:#0f3460"        title="다크 블루"></button>
+        <button class="color-preset" data-color="16213e"        style="background:#16213e"        title="네이비"></button>
+        <input type="color" id="solid-color-picker" value="#000000" title="직접 선택">
+      </div>
+      <p id="solid-color-label" class="color-label">선택: 검정 (#000000)</p>
+      <button class="btn btn-outline" id="solid-preview-btn" style="margin-top:14px">🔍 미리보기</button>
+      <div class="preview-wrap" id="solid-preview-wrap" style="display:none">
+        <img id="solid-preview-img" alt="단색 배경 미리보기">
+      </div>
+    </div><!-- /panel-solid -->
+
+  </div><!-- /edit-card -->
+
+  <!-- ── 3단계: 적용 버튼 ─────────────────────── -->
   <div id="action-card" style="display:none">
-    <button class="btn btn-primary" id="process-btn">자르기 적용</button>
+    <button class="btn btn-primary" id="process-btn">✂️ 크롭 적용</button>
+    <button class="btn btn-outline" id="transcribe-btn">📝 대본 추출</button>
   </div>
 
-  <!-- 진행 표시 -->
+  <!-- 진행 표시 (크롭·블러·단색·대본 공용) -->
   <div class="card" id="progress-section" style="display:none">
     <div class="progress-bar-wrap">
-      <div class="progress-bar indeterminate"></div>
+      <div class="progress-bar" id="progress-fill"></div>
     </div>
     <p id="progress-text">처리 중입니다...</p>
   </div>

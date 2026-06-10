@@ -1,43 +1,229 @@
 # =====================================================
 # app.py — 숏츠 메이커 Flask 메인 앱
+#
+# 역할:
+#   · 브라우저와 서버 사이의 모든 HTTP 통신을 담당
+#   · 파일 업로드, 크롭/블러/단색 처리, YouTube 다운로드,
+#     서버 프리뷰, STT, 다운로드 등 각 기능별 엔드포인트 정의
+#   · 영상 실제 처리는 modules/video_processor.py 에 위임
+#   · 장시간 작업(ffmpeg, Whisper)은 백그라운드 스레드로 실행하고
+#     SSE(Server-Sent Events)로 진행률을 브라우저에 실시간 전송
+#
 # 실행: python app.py  →  http://localhost:5000
 # =====================================================
 
+import json
 import os
+import re
+import shutil
+import subprocess
+import threading
+import time
 import uuid
 
-from flask import Flask, render_template, request, jsonify, send_file
+from flask import (Flask, render_template, request, jsonify,
+                   send_file, Response, stream_with_context)
 from werkzeug.utils import secure_filename
 
 import config
 import modules.video_processor as vp
 
 app = Flask(__name__)
+# Flask가 허용하는 최대 업로드 크기를 config에서 읽어 설정
 app.config['MAX_CONTENT_LENGTH'] = config.MAX_CONTENT_LENGTH
 
+# 앱 시작 시 저장 폴더가 없으면 미리 만들어둔다
 os.makedirs(config.UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(config.OUTPUT_FOLDER, exist_ok=True)
 
+# ── 전역 상태 변수 ────────────────────────────────────
+# 마지막으로 파일 정리를 실행한 시각
+_last_cleanup  = 0.0
+
+# Whisper 모델 캐시: 처음 요청 시 로드한 뒤 메모리에 유지
+_whisper_model = None
+
+# 백그라운드 작업 레지스트리
+# job_id → { pct, done, error, result, original, srt, msg }
+_jobs: dict = {}
+
+
+# ─────────────────────────────────────────────────────
+# 헬퍼 함수
+# ─────────────────────────────────────────────────────
 
 def safe_filename(name: str) -> bool:
-    """경로 조작 공격 방지 — 디렉토리 구분자 포함 여부 확인"""
+    """
+    파일명에 경로 조작 문자( / \\ ..)가 있는지 검사한다.
+    공격자가 '../etc/passwd' 같은 경로를 보내는 경로 순회 공격을 막는다.
+    """
     return os.sep not in name and '/' not in name and '..' not in name
 
 
+def sanitize_base(name: str) -> str:
+    """
+    파일명 베이스 정리: 확장자 제거 → OS 금지 문자 제거 → 공백→언더스코어 → 80자 제한
+    결과가 빈 문자열이면 'video' 반환.
+    """
+    base = name.rsplit('.', 1)[0] if '.' in name else name
+    base = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '', base)
+    base = base.strip().replace(' ', '_')
+    return base[:80] or 'video'
+
+
+def make_output_name(base: str) -> str:
+    """원본명_crop_N.mp4 형식, output/ 에 이미 있으면 N을 올린다."""
+    n = 1
+    while True:
+        name = f'{base}_crop_{n}.mp4'
+        if not os.path.exists(os.path.join(config.OUTPUT_FOLDER, name)):
+            return name
+        n += 1
+
+
+def make_srt_name(base: str) -> str:
+    """원본명_transcript_N.srt 형식, 중복 시 N 증가."""
+    n = 1
+    while True:
+        name = f'{base}_transcript_{n}.srt'
+        if not os.path.exists(os.path.join(config.OUTPUT_FOLDER, name)):
+            return name
+        n += 1
+
+
+def cleanup_old_files():
+    """
+    OUTPUT_TTL_SECONDS 이상 된 파일을 uploads/·output/ 에서 정리한다.
+    마지막 실행으로부터 TTL이 지나지 않았으면 바로 반환 (매 요청마다 삭제하지 않음).
+    """
+    global _last_cleanup
+    now = time.time()
+    if now - _last_cleanup < config.OUTPUT_TTL_SECONDS:
+        return
+    _last_cleanup = now
+    cutoff = now - config.OUTPUT_TTL_SECONDS
+    for folder in (config.OUTPUT_FOLDER, config.UPLOAD_FOLDER):
+        for fname in os.listdir(folder):
+            fpath = os.path.join(folder, fname)
+            try:
+                if os.path.isfile(fpath) and os.path.getmtime(fpath) < cutoff:
+                    os.remove(fpath)
+            except OSError:
+                pass
+
+
+def get_whisper_model():
+    """
+    Whisper small 모델을 반환한다 (처음 한 번만 로드, 이후 캐시 재사용).
+    첫 실행 시 약 483MB를 다운로드하고 메모리에 로드하는 데 수 초가 걸린다.
+    """
+    global _whisper_model
+    if _whisper_model is None:
+        import whisper
+        _whisper_model = whisper.load_model('small')
+    return _whisper_model
+
+
 def allowed_file(filename: str) -> bool:
+    """파일 확장자가 허용 목록에 있는지 확인한다."""
     ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
     return ext in config.ALLOWED_EXTENSIONS
 
 
-# ── 메인 페이지 ─────────────────────────────────────
+def _sec_to_srt_time(seconds: float) -> str:
+    """초 → SRT 타임스탬프 형식 (HH:MM:SS,mmm)."""
+    ms = int((seconds % 1) * 1000)
+    s  = int(seconds) % 60
+    m  = (int(seconds) // 60) % 60
+    h  = int(seconds) // 3600
+    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+
+def _to_srt(segments) -> str:
+    """Whisper 세그먼트 목록을 SRT 파일 문자열로 변환한다."""
+    lines = []
+    for i, seg in enumerate(segments, 1):
+        start = _sec_to_srt_time(seg['start'])
+        end   = _sec_to_srt_time(seg['end'])
+        lines.append(f"{i}\n{start} --> {end}\n{seg['text'].strip()}")
+    return '\n\n'.join(lines) + '\n'
+
+
+# ─────────────────────────────────────────────────────
+# 백그라운드 작업 (SSE 진행률 연동)
+# ─────────────────────────────────────────────────────
+
+def _run_job_thread(cmd: list, job_id: str, duration: float,
+                    input_path: str, orig_filename: str) -> None:
+    """
+    ffmpeg를 백그라운드 스레드에서 실행하며 진행률을 _jobs에 업데이트한다.
+
+    ffmpeg 에 -progress pipe:1 옵션이 붙어 있으면 stdout으로
+    'out_time_ms=숫자' 형태의 진행 정보를 주기적으로 출력한다.
+    이 값을 영상 전체 길이(duration)로 나눠 % 를 계산한다.
+
+    완료 시 원본 파일을 uploads/ → output/ 으로 이동한다.
+    """
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True, encoding='utf-8',
+        )
+
+        # stdout에서 ffmpeg 진행 정보를 실시간으로 읽는다
+        for line in proc.stdout:
+            line = line.strip()
+            if line.startswith('out_time_ms='):
+                try:
+                    ms = int(line.split('=')[1])
+                    if duration > 0:
+                        pct = min(int(ms / 1_000_000 / duration * 100), 99)
+                        _jobs[job_id]['pct'] = pct
+                except (ValueError, KeyError):
+                    pass
+
+        proc.wait()
+
+        if proc.returncode == 0:
+            # 처리 완료 → 원본을 output/ 으로 이동
+            dst = os.path.join(config.OUTPUT_FOLDER, orig_filename)
+            if os.path.exists(input_path):
+                shutil.move(input_path, dst)
+            _jobs[job_id].update({'pct': 100, 'done': True, 'original': orig_filename})
+        else:
+            err = proc.stderr.read()[-300:]
+            _jobs[job_id].update({'done': True, 'error': err or '처리 중 오류 발생'})
+
+    except Exception as e:
+        if job_id in _jobs:
+            _jobs[job_id].update({'done': True, 'error': str(e)})
+
+
+# ─────────────────────────────────────────────────────
+# 훅: 모든 요청 전에 파일 정리
+# ─────────────────────────────────────────────────────
+
+@app.before_request
+def periodic_cleanup():
+    """매 요청마다 호출되지만, 실제 삭제는 TTL 주기(1시간)에 한 번만 일어난다."""
+    cleanup_old_files()
+
+
+# ─────────────────────────────────────────────────────
+# 라우트
+# ─────────────────────────────────────────────────────
+
 @app.route('/')
 def index():
+    """메인 페이지."""
     return render_template('index.html')
 
 
-# ── 업로드된 원본 파일 서빙 (크롭 미리보기용) ─────────
 @app.route('/uploads/<filename>')
 def serve_upload(filename: str):
+    """업로드된 원본 영상을 스트리밍한다 (크롭 UI 미리보기용)."""
     if not safe_filename(filename):
         return '', 404
     path = os.path.join(config.UPLOAD_FOLDER, filename)
@@ -46,9 +232,13 @@ def serve_upload(filename: str):
     return send_file(path)
 
 
-# ── 영상 업로드 ─────────────────────────────────────
 @app.route('/upload', methods=['POST'])
 def upload():
+    """
+    영상 파일을 uploads/ 에 저장한다.
+    파일명을 UUID로 바꿔 중복 충돌을 방지하고,
+    원본 파일명 베이스(original_base)는 응답에 포함해 다운로드명에 활용한다.
+    """
     if 'video' not in request.files:
         return jsonify({'ok': False, 'error': '파일이 없습니다.'}), 400
 
@@ -56,9 +246,10 @@ def upload():
     if not file.filename or not allowed_file(file.filename):
         return jsonify({'ok': False, 'error': f'지원 형식: {", ".join(config.ALLOWED_EXTENSIONS)}'}), 400
 
-    ext      = file.filename.rsplit('.', 1)[-1].lower()
-    filename = f'{uuid.uuid4().hex}.{ext}'
-    save_path = os.path.join(config.UPLOAD_FOLDER, filename)
+    ext           = file.filename.rsplit('.', 1)[-1].lower()
+    filename      = f'{uuid.uuid4().hex}.{ext}'
+    original_base = sanitize_base(file.filename)
+    save_path     = os.path.join(config.UPLOAD_FOLDER, filename)
     file.save(save_path)
 
     try:
@@ -66,15 +257,76 @@ def upload():
     except Exception:
         info = {}
 
-    return jsonify({'ok': True, 'filename': filename, 'info': info})
+    return jsonify({'ok': True, 'filename': filename, 'original_base': original_base, 'info': info})
 
 
-# ── 크롭 처리 ───────────────────────────────────────
-@app.route('/process', methods=['POST'])
-def process():
+@app.route('/preview', methods=['POST'])
+def preview():
+    """
+    서버 프리뷰: 첫 프레임을 선택한 모드로 처리해 JPEG로 반환한다.
+
+    실제 영상 처리와 완전히 동일한 ffmpeg 필터를 사용하므로
+    최종 결과물과 정확히 같은 화면을 미리 볼 수 있다.
+
+    캐싱: 같은 파일 + 같은 파라미터 조합이면 이전에 생성한 JPEG를 재사용한다.
+    """
     data     = request.get_json(force=True)
     filename = data.get('filename', '')
-    crop     = data.get('crop')   # { x, y, w, h } — 실제 픽셀 값
+    mode     = data.get('mode', 'crop')
+
+    if not filename or not safe_filename(filename):
+        return jsonify({'ok': False, 'error': '잘못된 파일명'}), 400
+
+    # 파일 위치 탐색: output/ 우선, 없으면 uploads/
+    path = os.path.join(config.OUTPUT_FOLDER, filename)
+    if not os.path.exists(path):
+        path = os.path.join(config.UPLOAD_FOLDER, filename)
+    if not os.path.exists(path):
+        return jsonify({'ok': False, 'error': '파일을 찾을 수 없습니다.'}), 404
+
+    # 캐시 키: 모드 + 파라미터로 고유한 파일명 생성
+    if mode == 'crop':
+        c   = data.get('crop') or {}
+        key = f"crop_{int(c.get('x',0))}_{int(c.get('y',0))}_{int(c.get('w',0))}_{int(c.get('h',0))}"
+    elif mode == 'blur':
+        key = f"blur_{int(data.get('blur', 20))}"
+    else:
+        key = f"solid_{data.get('color', '000000').lstrip('#')}"
+
+    base         = os.path.splitext(filename)[0]
+    preview_name = f"prev_{base}_{key}.jpg"
+    preview_path = os.path.join(config.OUTPUT_FOLDER, preview_name)
+
+    if not os.path.exists(preview_path):
+        try:
+            vp.make_preview(
+                path, preview_path,
+                mode=mode,
+                crop=data.get('crop'),
+                blur=int(data.get('blur', 20)),
+                color=data.get('color', '000000'),
+            )
+        except Exception as e:
+            return jsonify({'ok': False, 'error': str(e)}), 500
+
+    return send_file(preview_path, mimetype='image/jpeg')
+
+
+@app.route('/process', methods=['POST'])
+def process():
+    """
+    크롭/블러/단색 처리를 백그라운드 스레드로 시작하고 job_id를 즉시 반환한다.
+    브라우저는 job_id로 /progress/<job_id> SSE를 구독해 진행률을 받는다.
+
+    mode: 'crop' | 'blur' | 'solid'
+    """
+    data          = request.get_json(force=True)
+    filename      = data.get('filename', '')
+    original_base = sanitize_base(data.get('original_base', '') or 'video')
+    mode          = data.get('mode', 'crop')
+    crop          = data.get('crop')
+    blur_level    = int(data.get('blur', 20))
+    color         = (data.get('color') or '000000').lstrip('#')
 
     if not filename or not safe_filename(filename):
         return jsonify({'ok': False, 'error': '잘못된 파일명'}), 400
@@ -83,27 +335,218 @@ def process():
     if not os.path.exists(input_path):
         return jsonify({'ok': False, 'error': '파일을 찾을 수 없습니다.'}), 404
 
-    if not crop:
+    if mode == 'crop' and not crop:
         return jsonify({'ok': False, 'error': '크롭 정보가 없습니다.'}), 400
 
-    result_name = f'shorts_{uuid.uuid4().hex[:8]}.mp4'
+    result_name = make_output_name(original_base)
     result_path = os.path.join(config.OUTPUT_FOLDER, result_name)
 
     try:
-        vp.crop_custom(
-            input_path, result_path,
-            x=int(crop['x']), y=int(crop['y']),
-            w=int(crop['w']), h=int(crop['h']),
+        duration = vp.get_video_info(input_path).get('duration', 0)
+
+        if mode == 'crop':
+            cmd = vp.build_crop_cmd(
+                input_path, result_path,
+                int(crop['x']), int(crop['y']),
+                int(crop['w']), int(crop['h']),
+            )
+        elif mode == 'blur':
+            cmd = vp.build_blur_cmd(input_path, result_path, blur=blur_level)
+        else:
+            cmd = vp.build_solid_cmd(input_path, result_path, color=color)
+
+        job_id = uuid.uuid4().hex[:8]
+        _jobs[job_id] = {
+            'pct': 0, 'done': False, 'error': None,
+            'result': result_name, 'original': None, 'srt': None,
+            'msg': '처리 시작 중...',
+        }
+
+        t = threading.Thread(
+            target=_run_job_thread,
+            args=(cmd, job_id, duration, input_path, filename),
+            daemon=True,
         )
-        return jsonify({'ok': True, 'result': result_name})
+        t.start()
+
+        return jsonify({'ok': True, 'job_id': job_id})
 
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
 
 
-# ── 결과 다운로드 ────────────────────────────────────
+@app.route('/progress/<job_id>')
+def progress_stream(job_id: str):
+    """
+    SSE 엔드포인트: 백그라운드 작업 진행률을 0.3초 간격으로 스트리밍한다.
+
+    클라이언트가 EventSource로 이 URL을 구독하면
+    {'pct': 0~100, 'done': bool, 'msg': str} 형태의 JSON을 받는다.
+    완료 시 'result', 'original', 'srt' 필드도 포함된다.
+    최대 10분 후 타임아웃 메시지를 보내고 스트림을 닫는다.
+    """
+    def generate():
+        deadline = time.time() + 600
+        while time.time() < deadline:
+            job = _jobs.get(job_id)
+
+            # 작업이 아직 _jobs에 등록되기 전일 수 있음 (race condition 방지)
+            if job is None:
+                yield f'data: {json.dumps({"pct": 0, "done": False})}\n\n'
+                time.sleep(0.3)
+                continue
+
+            pct   = job.get('pct', 0)
+            done  = job.get('done', False)
+            error = job.get('error')
+            msg   = job.get('msg', '')
+
+            if error:
+                yield f'data: {json.dumps({"pct": pct, "done": True, "error": error})}\n\n'
+                _jobs.pop(job_id, None)
+                return
+
+            payload = {'pct': pct, 'done': done, 'msg': msg}
+            if done:
+                payload['result']   = job.get('result')
+                payload['original'] = job.get('original')
+                payload['srt']      = job.get('srt')
+
+            yield f'data: {json.dumps(payload)}\n\n'
+
+            if done:
+                _jobs.pop(job_id, None)
+                return
+
+            time.sleep(0.3)
+
+        yield f'data: {json.dumps({"done": True, "error": "처리 시간 초과 (10분)"})}\n\n'
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype='text/event-stream',
+        headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'},
+    )
+
+
+@app.route('/fetch-youtube', methods=['POST'])
+def fetch_youtube():
+    """
+    YouTube URL에서 영상을 다운로드해 uploads/ 에 저장한다.
+    yt-dlp 로 최고 화질 mp4를 받아 UUID 파일명으로 저장한다.
+    """
+    data = request.get_json(force=True)
+    url  = (data.get('url') or '').strip()
+
+    if not url or not re.search(r'(youtube\.com|youtu\.be)', url):
+        return jsonify({'ok': False, 'error': '유효하지 않은 YouTube URL'}), 400
+
+    try:
+        # 영상 제목 먼저 조회 (다운로드 없이)
+        title_result = subprocess.run(
+            ['yt-dlp', '--get-filename', '-o', '%(title)s', '--no-playlist', url],
+            capture_output=True, text=True, timeout=30,
+        )
+        raw_title     = title_result.stdout.strip().split('\n')[0] or 'video'
+        original_base = sanitize_base(raw_title)
+
+        temp_name = f'{uuid.uuid4().hex}.mp4'
+        temp_path = os.path.join(config.UPLOAD_FOLDER, temp_name)
+
+        subprocess.run(
+            [
+                'yt-dlp',
+                # mp4+m4a 최고화질 조합 → ffmpeg 자동 병합
+                '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+                '--merge-output-format', 'mp4',
+                '--no-playlist',
+                '-o', temp_path,
+                url,
+            ],
+            capture_output=True, text=True, timeout=300, check=True,
+        )
+
+        try:
+            info = vp.get_video_info(temp_path)
+        except Exception:
+            info = {}
+
+        return jsonify({'ok': True, 'filename': temp_name,
+                        'original_base': original_base, 'info': info})
+
+    except FileNotFoundError:
+        return jsonify({'ok': False, 'error': 'yt-dlp가 설치되지 않았습니다.'}), 500
+    except subprocess.TimeoutExpired:
+        return jsonify({'ok': False, 'error': '다운로드 시간 초과 (5분)'}), 500
+    except subprocess.CalledProcessError as e:
+        err = (e.stderr or '')[-300:]
+        return jsonify({'ok': False, 'error': f'다운로드 실패: {err}'}), 500
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/transcribe', methods=['POST'])
+def transcribe():
+    """
+    영상에서 음성을 인식해 SRT 대본 파일을 생성한다.
+    Whisper 처리는 백그라운드 스레드로 실행하고 SSE로 진행 단계를 알린다.
+    """
+    data          = request.get_json(force=True)
+    filename      = data.get('filename', '')
+    original_base = sanitize_base(data.get('original_base', '') or 'video')
+
+    if not filename or not safe_filename(filename):
+        return jsonify({'ok': False, 'error': '잘못된 파일명'}), 400
+
+    # output/ 우선 탐색 (크롭 완료 후 원본이 이동됐을 수 있음)
+    path = os.path.join(config.OUTPUT_FOLDER, filename)
+    if not os.path.exists(path):
+        path = os.path.join(config.UPLOAD_FOLDER, filename)
+    if not os.path.exists(path):
+        return jsonify({'ok': False, 'error': '파일을 찾을 수 없습니다.'}), 404
+
+    job_id = uuid.uuid4().hex[:8]
+    _jobs[job_id] = {
+        'pct': 0, 'done': False, 'error': None,
+        'result': None, 'original': None, 'srt': None,
+        'msg': '준비 중...',
+    }
+
+    _path = path
+    _base = original_base
+
+    def _run_transcribe():
+        try:
+            _jobs[job_id].update({'msg': '모델 준비 중... (1/3)', 'pct': 10})
+            model = get_whisper_model()
+
+            _jobs[job_id].update({'msg': '음성 인식 중... (2/3)', 'pct': 30})
+            result = model.transcribe(_path, language='ko')
+
+            _jobs[job_id].update({'msg': 'SRT 저장 중... (3/3)', 'pct': 90})
+            srt_name = make_srt_name(_base)
+            srt_path = os.path.join(config.OUTPUT_FOLDER, srt_name)
+            with open(srt_path, 'w', encoding='utf-8') as f:
+                f.write(_to_srt(result['segments']))
+
+            _jobs[job_id].update({'pct': 100, 'done': True, 'srt': srt_name, 'msg': '완료'})
+
+        except ModuleNotFoundError:
+            _jobs[job_id].update({'done': True,
+                                  'error': 'openai-whisper가 설치되지 않았습니다. pip install openai-whisper'})
+        except Exception as e:
+            _jobs[job_id].update({'done': True, 'error': str(e)})
+
+    threading.Thread(target=_run_transcribe, daemon=True).start()
+    return jsonify({'ok': True, 'job_id': job_id})
+
+
 @app.route('/download/<filename>')
 def download(filename: str):
+    """
+    output/ 폴더의 파일을 브라우저로 다운로드한다.
+    .mp4, .srt 등 확장자에 무관하게 처리한다.
+    """
     if not safe_filename(filename):
         return jsonify({'ok': False, 'error': '잘못된 파일명'}), 400
 
@@ -120,4 +563,5 @@ if __name__ == '__main__':
     print("  숏츠 메이커 →  http://localhost:5000")
     print("  종료: Ctrl+C")
     print("=" * 45)
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    # threaded=True: SSE 스트리밍과 백그라운드 작업을 위해 필수
+    app.run(debug=True, host='0.0.0.0', port=5000, threaded=True)

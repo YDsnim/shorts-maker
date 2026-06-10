@@ -1,3 +1,5 @@
 Flask==3.0.3
 Werkzeug==3.0.3
 gTTS==2.5.4
+yt-dlp
+openai-whisper
