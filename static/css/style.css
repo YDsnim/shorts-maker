@@ -355,13 +355,14 @@ main {
 .btn-yt:hover  { opacity: .85; }
 .btn-yt:disabled { opacity: .45; cursor: not-allowed; }
 
-/* ── 편집 모드 탭 ──────────────────────────────────── */
-.mode-tabs {
+/* ── 배경 처리 선택 버튼 ──────────────────────────── */
+.bg-selector {
   display: flex;
   gap: 6px;
-  margin-bottom: 16px;
+  margin-top: 16px;
+  margin-bottom: 4px;
 }
-.mode-tab {
+.bg-btn {
   flex: 1;
   padding: 9px 4px;
   background: transparent;
@@ -375,17 +376,13 @@ main {
   text-align: center;
   line-height: 1.3;
 }
-.mode-tab:hover  { border-color: var(--accent); color: var(--text); }
-.mode-tab.active { border-color: var(--accent); background: rgba(124,106,247,.12); color: var(--text); }
+.bg-btn:hover  { border-color: var(--accent); color: var(--text); }
+.bg-btn.active { border-color: var(--accent); background: rgba(124,106,247,.12); color: var(--text); }
 
-/* ── 모드 설명 텍스트 ─────────────────────────────── */
-.mode-desc {
-  font-size: .85rem;
-  color: var(--text-muted);
-  margin-bottom: 14px;
-  line-height: 1.55;
+/* ── 블러·단색 제어 영역 ──────────────────────────── */
+#blur-controls, #solid-controls {
+  margin-top: 14px;
 }
-.mode-desc small { font-size: .8rem; opacity: .8; }
 
 /* ── 블러 강도 슬라이더 행 ───────────────────────── */
 .slider-row {
@@ -449,6 +446,14 @@ main {
   font-size: .8rem;
   color: var(--text-muted);
   margin-top: 2px;
+}
+
+/* ── 결과 안내 텍스트 ────────────────────────────── */
+.result-hint {
+  margin-top: 10px;
+  font-size: .78rem;
+  color: var(--text-muted);
+  text-align: center;
 }
 
 /* ── 서버 프리뷰 이미지 ───────────────────────────── */

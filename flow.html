@@ -31,8 +31,9 @@ flowchart TD
     A([🖥 브라우저]) --> B{영상 소스 선택}
     B -->|로컬 파일| C[POST /upload]
     B -->|YouTube URL| D[POST /fetch-youtube\nyt-dlp 다운로드]
-    C --> E[(uploads/UUID.mp4)]
-    D --> E
+    C --> E[("uploads/날짜_원본명.mp4")]
+    D --> E2[("uploads/날짜_원본명_yt.mp4")]
+    E2 --> F
 
     E --> F{편집 방식 선택}
     F -->|✂️ 크롭| G[드래그로 영역 조정]
@@ -46,10 +47,10 @@ flowchart TD
     G --> L[POST /process]
     K --> L
 
-    L --> M[백그라운드 스레드\nffmpeg 실행]
-    M --> N[GET /progress/job_id\nSSE 진행률 스트리밍]
-    N --> O[(output/결과.mp4\n원본도 이동됨)]
-    O --> P[GET /download/파일명\n브라우저 다운로드]
+    L --> M[백그라운드 스레드\nffmpeg 실행\nstderr → 임시 파일로 데드락 방지]
+    M --> N[GET /progress/job_id\nSSE 진행률 스트리밍\n진행률 임시 파일 폴링]
+    N --> O[("output/날짜_원본명_모드_N.mp4\n원본도 이동됨")]
+    O --> P[GET /download/파일명\n브라우저 다운로드 링크 표시]
 
     style A fill:#1a1a24,stroke:#7c6af7
     style E fill:#1a1a24,stroke:#2a2a3a
@@ -82,10 +83,10 @@ flowchart LR
 <h2>파일 저장 위치와 TTL 정리</h2>
 <div class="mermaid">
 flowchart TD
-    A[영상 업로드] --> B[(uploads/UUID.mp4\n임시 보관)]
-    B -->|처리 완료| C[(output/UUID.mp4\n원본 이동)]
-    B -->|처리 결과| D[(output/원본명_crop_N.mp4\n결과 파일)]
-    B -->|Whisper| E[(output/원본명_transcript_N.srt)]
+    A[영상 업로드] --> B[("uploads/날짜_원본명.mp4\n임시 보관")]
+    B -->|처리 완료 후 이동| C[("output/날짜_원본명.mp4\n원본 이동")]
+    B -->|처리 결과| D[("output/날짜_원본명_crop_N.mp4\noutput/날짜_원본명_blur_N.mp4\noutput/날짜_원본명_color_N.mp4")]
+    B -->|Whisper| E[("output/날짜_원본명_transcript_N.srt")]
 
     F[매 요청마다\nbefore_request 훅] --> G{마지막 정리\n≥ 1시간?}
     G -->|Yes| H[1시간 이상 된 파일\n자동 삭제]
@@ -102,17 +103,17 @@ flowchart TD
 <div class="mermaid">
 flowchart LR
     subgraph GET
-        G1[/ — 메인 페이지]
-        G2[/uploads/파일명 — 원본 스트리밍]
-        G3[/progress/job_id — SSE 진행률]
-        G4[/download/파일명 — 결과 다운로드]
+        G1["/ — 메인 페이지"]
+        G2["/uploads/파일명 — 원본 스트리밍"]
+        G3["/progress/job_id — SSE 진행률"]
+        G4["/download/파일명 — 결과 다운로드"]
     end
     subgraph POST
-        P1[/upload — 파일 업로드]
-        P2[/fetch-youtube — YT 다운로드]
-        P3[/preview — 프리뷰 JPEG]
-        P4[/process — 영상 처리]
-        P5[/transcribe — 대본 추출]
+        P1["/upload — 파일 업로드"]
+        P2["/fetch-youtube — YT 다운로드"]
+        P3["/preview — 프리뷰 JPEG"]
+        P4["/process — 영상 처리"]
+        P5["/transcribe — 대본 추출"]
     end
 </div>
 

@@ -42,72 +42,55 @@
     <div id="video-info"></div>
   </div>
 
-  <!-- ── 2단계: 편집 방식 선택 (업로드 후 표시) ───── -->
+  <!-- ── 2단계: 영역 선택 (업로드 후 표시) ───────── -->
   <div class="card" id="edit-card" style="display:none">
-    <div class="card-title"><span class="icon">🎨</span> 편집 방식</div>
+    <div class="card-title"><span class="icon">✂️</span> 영역 선택</div>
 
-    <!-- 모드 탭: 크롭 / 블러 배경 / 단색 배경 -->
-    <div class="mode-tabs">
-      <button class="mode-tab active" data-mode="crop">✂️ 크롭</button>
-      <button class="mode-tab" data-mode="blur">🌫 블러 배경</button>
-      <button class="mode-tab" data-mode="solid">🎨 단색 배경</button>
+    <!-- 비디오 미리보기 + 크롭 오버레이 (항상 표시) -->
+    <div id="crop-container">
+      <video id="preview-video" preload="metadata" playsinline muted></video>
+      <div id="crop-box">
+        <div class="handle h-nw" data-dir="nw"></div>
+        <div class="handle h-n"  data-dir="n"></div>
+        <div class="handle h-ne" data-dir="ne"></div>
+        <div class="handle h-w"  data-dir="w"></div>
+        <div class="handle h-e"  data-dir="e"></div>
+        <div class="handle h-sw" data-dir="sw"></div>
+        <div class="handle h-s"  data-dir="s"></div>
+        <div class="handle h-se" data-dir="se"></div>
+      </div>
     </div>
 
-    <!-- ── 크롭 패널 ─────────────────────────── -->
-    <div class="mode-panel" id="panel-crop">
+    <div class="crop-controls">
+      <label class="toggle-label">
+        <input type="checkbox" id="lock-916">
+        <span class="toggle-pill"></span>
+        9:16 비율 고정
+      </label>
+      <button class="btn-ghost" id="reset-btn">초기화</button>
+    </div>
+    <div id="crop-dims">— × — px</div>
+    <div id="ratio-badge" style="display:none" class="badge-ok">이미 9:16 비율입니다</div>
 
-      <!-- 비디오 미리보기 + 크롭 오버레이 -->
-      <div id="crop-container">
-        <video id="preview-video" preload="metadata" playsinline muted></video>
+    <!-- 배경 처리 선택 -->
+    <div class="bg-selector">
+      <button class="bg-btn active" data-bg="none">✂️ 크롭만</button>
+      <button class="bg-btn" data-bg="blur">🌫 블러 배경</button>
+      <button class="bg-btn" data-bg="solid">🎨 단색 배경</button>
+    </div>
 
-        <!-- 크롭 박스 (드래그 핸들 포함) -->
-        <div id="crop-box">
-          <div class="handle h-nw" data-dir="nw"></div>
-          <div class="handle h-n"  data-dir="n"></div>
-          <div class="handle h-ne" data-dir="ne"></div>
-          <div class="handle h-w"  data-dir="w"></div>
-          <div class="handle h-e"  data-dir="e"></div>
-          <div class="handle h-sw" data-dir="sw"></div>
-          <div class="handle h-s"  data-dir="s"></div>
-          <div class="handle h-se" data-dir="se"></div>
-        </div>
-      </div>
-
-      <div class="crop-controls">
-        <label class="toggle-label">
-          <input type="checkbox" id="lock-916">
-          <span class="toggle-pill"></span>
-          9:16 비율 고정
-        </label>
-        <button class="btn-ghost" id="reset-btn">초기화</button>
-      </div>
-      <div id="crop-dims">— × — px</div>
-      <div id="ratio-badge" style="display:none" class="badge-ok">이미 9:16 비율입니다</div>
-
-    </div><!-- /panel-crop -->
-
-    <!-- ── 블러 배경 패널 ────────────────────── -->
-    <div class="mode-panel" id="panel-blur" style="display:none">
-      <p class="mode-desc">
-        원본 영상을 9:16 화면 안에 그대로 유지하고, 빈 배경을 흐리게 채웁니다.<br>
-        <small>크롭과 달리 영상 내용이 잘리지 않습니다.</small>
-      </p>
+    <!-- 블러 설정 (blur 선택 시에만 표시) -->
+    <div id="blur-controls" style="display:none">
       <div class="slider-row">
         <span class="slider-label">블러 강도</span>
         <input type="range" id="blur-slider" min="0" max="40" value="20">
         <span id="blur-value" class="slider-val">20</span>
       </div>
       <button class="btn btn-outline" id="blur-preview-btn" style="margin-top:14px">🔍 미리보기</button>
-      <div class="preview-wrap" id="blur-preview-wrap" style="display:none">
-        <img id="blur-preview-img" alt="블러 배경 미리보기">
-      </div>
-    </div><!-- /panel-blur -->
+    </div>
 
-    <!-- ── 단색 배경 패널 ────────────────────── -->
-    <div class="mode-panel" id="panel-solid" style="display:none">
-      <p class="mode-desc">
-        원본 영상을 9:16 화면 안에 배치하고, 빈 여백을 선택한 색으로 채웁니다.
-      </p>
+    <!-- 단색 설정 (solid 선택 시에만 표시) -->
+    <div id="solid-controls" style="display:none">
       <div class="color-presets">
         <button class="color-preset active" data-color="000000" style="background:#000000" title="검정"></button>
         <button class="color-preset" data-color="ffffff"        style="background:#ffffff"        title="흰색"></button>
@@ -119,10 +102,12 @@
       </div>
       <p id="solid-color-label" class="color-label">선택: 검정 (#000000)</p>
       <button class="btn btn-outline" id="solid-preview-btn" style="margin-top:14px">🔍 미리보기</button>
-      <div class="preview-wrap" id="solid-preview-wrap" style="display:none">
-        <img id="solid-preview-img" alt="단색 배경 미리보기">
-      </div>
-    </div><!-- /panel-solid -->
+    </div>
+
+    <!-- 공용 프리뷰 이미지 (블러·단색 배경 미리보기 결과) -->
+    <div class="preview-wrap" id="preview-wrap" style="display:none">
+      <img id="preview-img" alt="미리보기">
+    </div>
 
   </div><!-- /edit-card -->
 
@@ -142,8 +127,9 @@
 
   <!-- 결과 -->
   <div class="card" id="result-section" style="display:none">
-    <div class="card-title"><span class="icon">🎉</span> 완성!</div>
+    <div class="card-title"><span class="icon">✅</span> 변환 완료!</div>
     <a id="download-btn" class="btn btn-success" href="#" download>📥 완성된 영상 다운로드</a>
+    <p class="result-hint">다운로드 후 다른 영역으로 다시 변환하려면 영상을 다시 업로드해 주세요.</p>
   </div>
 
 </main>

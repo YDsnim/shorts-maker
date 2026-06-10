@@ -168,89 +168,99 @@ def build_crop_cmd(input_path: str, output_path: str,
 
 
 def build_blur_cmd(input_path: str, output_path: str,
-                   blur: int = 20,
+                   blur: int = 20, crop: dict = None,
                    target_w: int = 1080, target_h: int = 1920) -> list:
     """
     블러 배경 ffmpeg 커맨드를 반환한다.
 
-    처리 방식:
-      1. 원본을 target 크기로 확대 후 crop → 배경 레이어
-      2. 배경에 boxblur 적용 → 흐림 처리
-      3. 원본을 target 안에 꽉 차게 축소 → 전경 레이어
-      4. 배경 위에 전경을 가운데 오버레이
-
+    crop 딕트가 있으면 해당 영역만 전경으로 사용하고,
+    없으면 원본 전체를 축소해 가운데에 올린다.
     blur 값이 클수록 배경이 더 흐려진다 (권장: 10~50).
     """
+    if crop:
+        cx, cy = int(crop['x']), int(crop['y'])
+        cw = int(crop['w']) & ~1
+        ch = int(crop['h']) & ~1
+        fg = (f'[0:v]crop={cw}:{ch}:{cx}:{cy},'
+              f'scale={target_w}:{target_h}:force_original_aspect_ratio=decrease[fg]')
+    else:
+        fg = f'[0:v]scale={target_w}:{target_h}:force_original_aspect_ratio=decrease[fg]'
+
+    small_w = target_w // 4
+    small_h = target_h // 4
     fc = (
         f'[0:v]scale={target_w}:{target_h}:force_original_aspect_ratio=increase,'
-        f'crop={target_w}:{target_h}[bg];'
-        f'[bg]boxblur={blur}:5[blurred];'
-        f'[0:v]scale={target_w}:{target_h}:force_original_aspect_ratio=decrease[fg];'
+        f'crop={target_w}:{target_h},'
+        f'scale={small_w}:{small_h},boxblur={blur}:1,scale={target_w}:{target_h}[blurred];'
+        f'{fg};'
         f'[blurred][fg]overlay=(W-w)/2:(H-h)/2[out]'
     )
     return [
         'ffmpeg', '-i', input_path,
         '-filter_complex', fc,
         '-map', '[out]', '-map', '0:a?',
-        '-c:v', 'libx264', '-c:a', 'aac',
+        '-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'aac',
         '-progress', 'pipe:1', '-nostats',
         '-y', output_path,
     ]
 
 
 def build_solid_cmd(input_path: str, output_path: str,
-                    color: str = '000000',
+                    color: str = '000000', crop: dict = None,
                     target_w: int = 1080, target_h: int = 1920) -> list:
     """
     단색 배경 ffmpeg 커맨드를 반환한다.
 
-    처리 방식:
-      원본을 target 안에 비율 유지하며 축소한 뒤,
-      남는 여백을 지정 색(color)으로 채운다.
-
-    color: 6자리 hex 문자열 (# 없이). 예) '000000', 'ffffff', '1a1a2e'
+    crop 딕트가 있으면 해당 영역을 잘라 축소 후 단색 패딩 처리한다.
+    color: 6자리 hex (# 없이). 예) '000000', 'ffffff', '1a1a2e'
     """
     color = color.lstrip('#')
+    crop_filter = ''
+    if crop:
+        cx, cy = int(crop['x']), int(crop['y'])
+        cw = int(crop['w']) & ~1
+        ch = int(crop['h']) & ~1
+        crop_filter = f'crop={cw}:{ch}:{cx}:{cy},'
     vf = (
+        f'{crop_filter}'
         f'scale={target_w}:{target_h}:force_original_aspect_ratio=decrease,'
         f'pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2:color=0x{color}'
     )
     return [
         'ffmpeg', '-i', input_path,
         '-vf', vf,
-        '-c:v', 'libx264', '-c:a', 'aac',
+        '-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'aac',
         '-progress', 'pipe:1', '-nostats',
         '-y', output_path,
     ]
 
 
 def make_preview(input_path: str, output_path: str,
-                 mode: str = 'crop', crop: dict = None,
+                 bg_mode: str = 'none', crop: dict = None,
                  blur: int = 20, color: str = '000000',
                  target_w: int = 1080, target_h: int = 1920) -> None:
     """
-    영상의 첫 프레임 1장을 추출해 지정 모드로 처리한 JPEG를 생성한다.
+    영상의 첫 프레임 1장을 추출해 지정 배경 모드로 처리한 JPEG를 생성한다.
 
-    실제 영상 처리와 동일한 ffmpeg 필터를 사용하므로
-    최종 결과물과 정확히 같은 화면을 미리 볼 수 있다.
-    처리 속도가 빠름 (단일 프레임).
+    bg_mode: 'none'(크롭만) | 'blur'(블러 배경) | 'solid'(단색 배경)
+    crop: 선택 영역 딕트 {x, y, w, h} — None이면 전체 영상
     """
-    if mode == 'crop' and crop:
-        x = int(crop['x']); y = int(crop['y'])
-        w = int(crop['w']); h = int(crop['h'])
-        w -= w % 2;  h -= h % 2
-        cmd = [
-            'ffmpeg', '-i', input_path,
-            '-frames:v', '1',
-            '-vf', f'crop={w}:{h}:{x}:{y}',
-            '-y', output_path,
-        ]
-    elif mode == 'blur':
+    if bg_mode == 'blur':
+        if crop:
+            cx, cy = int(crop['x']), int(crop['y'])
+            cw = int(crop['w']) & ~1
+            ch = int(crop['h']) & ~1
+            fg = (f'[0:v]crop={cw}:{ch}:{cx}:{cy},'
+                  f'scale={target_w}:{target_h}:force_original_aspect_ratio=decrease[fg]')
+        else:
+            fg = f'[0:v]scale={target_w}:{target_h}:force_original_aspect_ratio=decrease[fg]'
+        small_w = target_w // 4
+        small_h = target_h // 4
         fc = (
             f'[0:v]scale={target_w}:{target_h}:force_original_aspect_ratio=increase,'
-            f'crop={target_w}:{target_h}[bg];'
-            f'[bg]boxblur={blur}:5[blurred];'
-            f'[0:v]scale={target_w}:{target_h}:force_original_aspect_ratio=decrease[fg];'
+            f'crop={target_w}:{target_h},'
+            f'scale={small_w}:{small_h},boxblur={blur}:1,scale={target_w}:{target_h}[blurred];'
+            f'{fg};'
             f'[blurred][fg]overlay=(W-w)/2:(H-h)/2[out]'
         )
         cmd = [
@@ -260,9 +270,16 @@ def make_preview(input_path: str, output_path: str,
             '-map', '[out]',
             '-y', output_path,
         ]
-    else:  # solid
+    elif bg_mode == 'solid':
         color = color.lstrip('#')
+        crop_filter = ''
+        if crop:
+            cx, cy = int(crop['x']), int(crop['y'])
+            cw = int(crop['w']) & ~1
+            ch = int(crop['h']) & ~1
+            crop_filter = f'crop={cw}:{ch}:{cx}:{cy},'
         vf = (
+            f'{crop_filter}'
             f'scale={target_w}:{target_h}:force_original_aspect_ratio=decrease,'
             f'pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2:color=0x{color}'
         )
@@ -272,6 +289,19 @@ def make_preview(input_path: str, output_path: str,
             '-vf', vf,
             '-y', output_path,
         ]
+    else:  # 'none' — 크롭 영역만 미리보기
+        if crop:
+            x, y = int(crop['x']), int(crop['y'])
+            w = int(crop['w']) & ~1
+            h = int(crop['h']) & ~1
+            cmd = [
+                'ffmpeg', '-i', input_path,
+                '-frames:v', '1',
+                '-vf', f'crop={w}:{h}:{x}:{y}',
+                '-y', output_path,
+            ]
+        else:
+            cmd = ['ffmpeg', '-i', input_path, '-frames:v', '1', '-y', output_path]
     _run(cmd)
 
 

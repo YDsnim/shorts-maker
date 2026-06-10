@@ -20,6 +20,7 @@ import subprocess
 import threading
 import time
 import uuid
+from datetime import datetime
 
 from flask import (Flask, render_template, request, jsonify,
                    send_file, Response, stream_with_context)
@@ -71,21 +72,35 @@ def sanitize_base(name: str) -> str:
     return base[:80] or 'video'
 
 
-def make_output_name(base: str) -> str:
-    """원본명_crop_N.mp4 형식, output/ 에 이미 있으면 N을 올린다."""
+def make_upload_name(base: str, ext: str, suffix: str = '') -> str:
+    """날짜_원본명[_suffix].ext 형식으로 업로드 파일명을 생성한다. 충돌 시 카운터 추가."""
+    date_str = datetime.now().strftime('%Y%m%d_%H%M%S')
+    stem     = f'{date_str}_{base}' + (f'_{suffix}' if suffix else '')
+    filename = f'{stem}.{ext}'
+    n = 2
+    while os.path.exists(os.path.join(config.UPLOAD_FOLDER, filename)):
+        filename = f'{stem}_{n}.{ext}'
+        n += 1
+    return filename
+
+
+def make_output_name(base: str, mode: str = 'crop') -> str:
+    """날짜_원본명_모드_N.mp4 형식. 같은 이름이 이미 있으면 N을 올린다."""
+    date_str = datetime.now().strftime('%Y%m%d_%H%M%S')
     n = 1
     while True:
-        name = f'{base}_crop_{n}.mp4'
+        name = f'{date_str}_{base}_{mode}_{n}.mp4'
         if not os.path.exists(os.path.join(config.OUTPUT_FOLDER, name)):
             return name
         n += 1
 
 
 def make_srt_name(base: str) -> str:
-    """원본명_transcript_N.srt 형식, 중복 시 N 증가."""
+    """날짜_원본명_transcript_N.srt 형식, 중복 시 N 증가."""
+    date_str = datetime.now().strftime('%Y%m%d_%H%M%S')
     n = 1
     while True:
-        name = f'{base}_transcript_{n}.srt'
+        name = f'{date_str}_{base}_transcript_{n}.srt'
         if not os.path.exists(os.path.join(config.OUTPUT_FOLDER, name)):
             return name
         n += 1
@@ -158,47 +173,64 @@ def _run_job_thread(cmd: list, job_id: str, duration: float,
     """
     ffmpeg를 백그라운드 스레드에서 실행하며 진행률을 _jobs에 업데이트한다.
 
-    ffmpeg 에 -progress pipe:1 옵션이 붙어 있으면 stdout으로
-    'out_time_ms=숫자' 형태의 진행 정보를 주기적으로 출력한다.
-    이 값을 영상 전체 길이(duration)로 나눠 % 를 계산한다.
-
-    완료 시 원본 파일을 uploads/ → output/ 으로 이동한다.
+    pipe:1 대신 임시 파일로 진행률을 수신해 Windows 파이프 버퍼링 문제를 우회한다.
+    stderr도 임시 파일에 기록해 파이프 버퍼(4KB) 데드락을 방지한다.
+    ffmpeg 종료 후 임시 파일을 읽어 에러 내용을 추출한다.
     """
-    try:
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True, encoding='utf-8',
-        )
+    progress_file = os.path.join(config.UPLOAD_FOLDER, f'prog_{job_id}.txt')
+    stderr_file   = os.path.join(config.UPLOAD_FOLDER, f'err_{job_id}.txt')
+    cmd = [progress_file if p == 'pipe:1' else p for p in cmd]
 
-        # stdout에서 ffmpeg 진행 정보를 실시간으로 읽는다
-        for line in proc.stdout:
-            line = line.strip()
-            if line.startswith('out_time_ms='):
-                try:
-                    ms = int(line.split('=')[1])
-                    if duration > 0:
-                        pct = min(int(ms / 1_000_000 / duration * 100), 99)
-                        _jobs[job_id]['pct'] = pct
-                except (ValueError, KeyError):
-                    pass
+    try:
+        # stderr를 파이프 대신 파일로 받아 데드락 방지
+        sf = open(stderr_file, 'w', encoding='utf-8', errors='replace')
+        try:
+            proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=sf)
+        finally:
+            sf.close()  # 부모 핸들은 즉시 닫아도 자식(ffmpeg)은 계속 쓸 수 있음
+
+        _jobs[job_id]['msg'] = '변환 중...'
+
+        while proc.poll() is None:
+            try:
+                if os.path.exists(progress_file):
+                    with open(progress_file, 'r', encoding='utf-8', errors='replace') as f:
+                        content = f.read()
+                    for line in reversed(content.splitlines()):
+                        if line.startswith('out_time_ms='):
+                            val = line.split('=')[1].strip()
+                            if val not in ('', 'N/A') and duration > 0:
+                                pct = min(int(int(val) / 1_000_000 / duration * 100), 99)
+                                _jobs[job_id]['pct'] = pct
+                            break
+            except (ValueError, OSError):
+                pass
+            time.sleep(0.5)
 
         proc.wait()
 
         if proc.returncode == 0:
-            # 처리 완료 → 원본을 output/ 으로 이동
             dst = os.path.join(config.OUTPUT_FOLDER, orig_filename)
             if os.path.exists(input_path):
                 shutil.move(input_path, dst)
-            _jobs[job_id].update({'pct': 100, 'done': True, 'original': orig_filename})
+            _jobs[job_id].update({'pct': 100, 'done': True, 'original': orig_filename, 'msg': '완료!'})
         else:
-            err = proc.stderr.read()[-300:]
+            try:
+                with open(stderr_file, 'r', encoding='utf-8', errors='replace') as f:
+                    err = f.read()[-300:]
+            except OSError:
+                err = ''
             _jobs[job_id].update({'done': True, 'error': err or '처리 중 오류 발생'})
 
     except Exception as e:
         if job_id in _jobs:
             _jobs[job_id].update({'done': True, 'error': str(e)})
+    finally:
+        for p in (progress_file, stderr_file):
+            try:
+                os.remove(p)
+            except OSError:
+                pass
 
 
 # ─────────────────────────────────────────────────────
@@ -247,8 +279,8 @@ def upload():
         return jsonify({'ok': False, 'error': f'지원 형식: {", ".join(config.ALLOWED_EXTENSIONS)}'}), 400
 
     ext           = file.filename.rsplit('.', 1)[-1].lower()
-    filename      = f'{uuid.uuid4().hex}.{ext}'
     original_base = sanitize_base(file.filename)
+    filename      = make_upload_name(original_base, ext)
     save_path     = os.path.join(config.UPLOAD_FOLDER, filename)
     file.save(save_path)
 
@@ -272,7 +304,8 @@ def preview():
     """
     data     = request.get_json(force=True)
     filename = data.get('filename', '')
-    mode     = data.get('mode', 'crop')
+    bg_mode  = data.get('bg_mode', data.get('mode', 'none'))
+    crop     = data.get('crop')
 
     if not filename or not safe_filename(filename):
         return jsonify({'ok': False, 'error': '잘못된 파일명'}), 400
@@ -284,14 +317,15 @@ def preview():
     if not os.path.exists(path):
         return jsonify({'ok': False, 'error': '파일을 찾을 수 없습니다.'}), 404
 
-    # 캐시 키: 모드 + 파라미터로 고유한 파일명 생성
-    if mode == 'crop':
-        c   = data.get('crop') or {}
-        key = f"crop_{int(c.get('x',0))}_{int(c.get('y',0))}_{int(c.get('w',0))}_{int(c.get('h',0))}"
-    elif mode == 'blur':
-        key = f"blur_{int(data.get('blur', 20))}"
+    # 캐시 키: bg_mode + crop 좌표 + 파라미터 조합
+    c = crop or {}
+    crop_key = f"{int(c.get('x',0))}_{int(c.get('y',0))}_{int(c.get('w',0))}_{int(c.get('h',0))}"
+    if bg_mode == 'blur':
+        key = f"blur_{int(data.get('blur', 20))}_{crop_key}"
+    elif bg_mode == 'solid':
+        key = f"solid_{data.get('color', '000000').lstrip('#')}_{crop_key}"
     else:
-        key = f"solid_{data.get('color', '000000').lstrip('#')}"
+        key = f"none_{crop_key}"
 
     base         = os.path.splitext(filename)[0]
     preview_name = f"prev_{base}_{key}.jpg"
@@ -301,8 +335,8 @@ def preview():
         try:
             vp.make_preview(
                 path, preview_path,
-                mode=mode,
-                crop=data.get('crop'),
+                bg_mode=bg_mode,
+                crop=crop,
                 blur=int(data.get('blur', 20)),
                 color=data.get('color', '000000'),
             )
@@ -323,7 +357,7 @@ def process():
     data          = request.get_json(force=True)
     filename      = data.get('filename', '')
     original_base = sanitize_base(data.get('original_base', '') or 'video')
-    mode          = data.get('mode', 'crop')
+    bg_mode       = data.get('bg_mode', data.get('mode', 'none'))
     crop          = data.get('crop')
     blur_level    = int(data.get('blur', 20))
     color         = (data.get('color') or '000000').lstrip('#')
@@ -335,25 +369,26 @@ def process():
     if not os.path.exists(input_path):
         return jsonify({'ok': False, 'error': '파일을 찾을 수 없습니다.'}), 404
 
-    if mode == 'crop' and not crop:
+    if bg_mode == 'none' and not crop:
         return jsonify({'ok': False, 'error': '크롭 정보가 없습니다.'}), 400
 
-    result_name = make_output_name(original_base)
+    mode_label  = {'none': 'crop', 'blur': 'blur', 'solid': 'color'}.get(bg_mode, 'crop')
+    result_name = make_output_name(original_base, mode_label)
     result_path = os.path.join(config.OUTPUT_FOLDER, result_name)
 
     try:
         duration = vp.get_video_info(input_path).get('duration', 0)
 
-        if mode == 'crop':
+        if bg_mode == 'none':
             cmd = vp.build_crop_cmd(
                 input_path, result_path,
                 int(crop['x']), int(crop['y']),
                 int(crop['w']), int(crop['h']),
             )
-        elif mode == 'blur':
-            cmd = vp.build_blur_cmd(input_path, result_path, blur=blur_level)
+        elif bg_mode == 'blur':
+            cmd = vp.build_blur_cmd(input_path, result_path, blur=blur_level, crop=crop)
         else:
-            cmd = vp.build_solid_cmd(input_path, result_path, color=color)
+            cmd = vp.build_solid_cmd(input_path, result_path, color=color, crop=crop)
 
         job_id = uuid.uuid4().hex[:8]
         _jobs[job_id] = {
@@ -450,7 +485,7 @@ def fetch_youtube():
         raw_title     = title_result.stdout.strip().split('\n')[0] or 'video'
         original_base = sanitize_base(raw_title)
 
-        temp_name = f'{uuid.uuid4().hex}.mp4'
+        temp_name = make_upload_name(original_base, 'mp4', 'yt')
         temp_path = os.path.join(config.UPLOAD_FOLDER, temp_name)
 
         subprocess.run(

@@ -1,12 +1,12 @@
 /* =====================================================
-   main.js — 숏츠 메이커 (크롭·블러·단색 편집 UI)
+   main.js — 숏츠 메이커
 
    역할:
      · 파일 업로드 (XHR — 진행률 % 실시간 표시)
      · YouTube URL 가져오기
-     · 모드 탭: ✂️ 크롭 / 🌫 블러 배경 / 🎨 단색 배경
-     · 크롭 모드: 드래그 박스 UI (마우스·터치)
-     · 블러·단색 모드: 서버 프리뷰 (/preview → JPEG)
+     · 영역 선택 박스 (항상 표시, 드래그 UI)
+     · 배경 선택: 없음(크롭만) / 블러 / 단색
+     · 블러·단색 선택 시 서버 프리뷰 (/preview → JPEG)
      · 처리: /process → job_id → SSE 진행률 구독
      · 대본 추출: /transcribe → job_id → SSE 단계 표시
    ===================================================== */
@@ -16,17 +16,10 @@ let uploadedFilename = null;   // 서버 UUID 파일명 (예: a3f9c1d2.mp4)
 let originalBase     = null;   // 결과 파일명에 쓸 원본 베이스 (예: '여름휴가')
 let videoDim = { w: 0, h: 0 }; // 실제 영상 픽셀 크기 (크롭 좌표 계산 기준)
 let cropPx   = { x: 0, y: 0, w: 0, h: 0 };  // 크롭 영역 (픽셀 단위)
-let currentMode = 'crop';      // 현재 편집 모드: 'crop' | 'blur' | 'solid'
+let bgMode   = 'none';         // 배경 처리 모드: 'none' | 'blur' | 'solid'
 let blurLevel   = 20;          // 블러 강도 (0~40)
 let solidColor  = '000000';    // 단색 배경 색상 (hex, # 없이)
 const MIN_PX = 20;             // 크롭 박스 최소 픽셀 크기
-
-// 모드별 적용 버튼 레이블
-const PROCESS_LABELS = {
-  crop:  '✂️ 크롭 적용',
-  blur:  '🌫 블러 배경 적용',
-  solid: '🎨 단색 배경 적용',
-};
 
 // ── DOM 참조 ─────────────────────────────────────────
 const ytUrl              = document.getElementById('yt-url');
@@ -53,13 +46,11 @@ const ratioBadge         = document.getElementById('ratio-badge');
 const blurSlider         = document.getElementById('blur-slider');
 const blurValueEl        = document.getElementById('blur-value');
 const blurPreviewBtn     = document.getElementById('blur-preview-btn');
-const blurPreviewWrap    = document.getElementById('blur-preview-wrap');
-const blurPreviewImg     = document.getElementById('blur-preview-img');
 const solidColorPicker   = document.getElementById('solid-color-picker');
 const solidPreviewBtn    = document.getElementById('solid-preview-btn');
-const solidPreviewWrap   = document.getElementById('solid-preview-wrap');
-const solidPreviewImg    = document.getElementById('solid-preview-img');
 const solidColorLabel    = document.getElementById('solid-color-label');
+const previewWrap        = document.getElementById('preview-wrap');
+const previewImg         = document.getElementById('preview-img');
 const toast              = document.getElementById('toast');
 
 /* ====================================================
@@ -140,10 +131,9 @@ function uploadFile(file) {
 function initCropUI(filename, info) {
   videoDim = { w: info.width || 1280, h: info.height || 720 };
 
-  previewVideo.src         = `/uploads/${filename}`;
+  previewVideo.src         = `/uploads/${encodeURIComponent(filename)}`;
   previewVideo.currentTime = 0;
 
-  // { once: true }: 같은 파일 재업로드 시 이벤트 중복 방지
   previewVideo.addEventListener('loadedmetadata', () => {
     initCropBox();
     editCard.style.display   = 'block';
@@ -151,6 +141,9 @@ function initCropUI(filename, info) {
 
     const ratio = videoDim.w / videoDim.h;
     ratioBadge.style.display = Math.abs(ratio - 9 / 16) < 0.01 ? 'block' : 'none';
+
+    // 새 영상 로드 시 프리뷰 숨기기
+    previewWrap.style.display = 'none';
   }, { once: true });
 }
 
@@ -173,9 +166,6 @@ function initCropBox() {
 
 /* ====================================================
    크롭 박스 렌더 (픽셀 좌표 → 화면 CSS 좌표 변환)
-
-   cropPx: 실제 영상 픽셀 기준 좌표 (서버로 전송)
-   CSS 좌표: 화면에 표시된 영상 크기 기준이므로 scale로 변환 필요
    ==================================================== */
 function renderCropBox() {
   const displayW = cropContainer.offsetWidth;
@@ -193,17 +183,12 @@ function renderCropBox() {
   cropDims.textContent = `결과: ${w} × ${h} px  (${(w / h).toFixed(2)} : 1)`;
 }
 
-// 창 크기가 바뀌면 scale이 달라지므로 박스 위치를 다시 계산
 window.addEventListener('resize', () => { if (uploadedFilename) renderCropBox(); });
 
 /* ====================================================
    드래그 핸들 이벤트
-
-   8개 핸들(n·s·e·w·nw·ne·sw·se)과 박스 중앙 이동.
-   마우스·터치 모두 지원. document에서 move·up 이벤트를 받아
-   박스 바깥으로 빠르게 드래그해도 끊기지 않는다.
    ==================================================== */
-let drag = null;  // { dir, startCX, startCY, startCrop }
+let drag = null;
 
 cropBox.querySelectorAll('.handle').forEach(handle => {
   handle.addEventListener('mousedown',  e => startDrag(e, handle.dataset.dir));
@@ -231,7 +216,6 @@ function onDragMove(e) {
   const pt       = getPoint(e);
   const displayW = cropContainer.offsetWidth;
   const displayH = displayW / videoDim.w * videoDim.h;
-  // 화면 이동량을 실제 영상 픽셀 단위로 변환
   const dvx = (pt.x - drag.startCX) / displayW  * videoDim.w;
   const dvy = (pt.y - drag.startCY) / displayH * videoDim.h;
 
@@ -307,18 +291,30 @@ function onDragMove(e) {
 resetBtn.addEventListener('click', initCropBox);
 
 /* ====================================================
-   모드 탭 전환
+   배경 모드 선택
    ==================================================== */
-document.querySelectorAll('.mode-tab').forEach(tab => {
-  tab.addEventListener('click', () => {
-    currentMode = tab.dataset.mode;
-    document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
-    tab.classList.add('active');
-    document.querySelectorAll('.mode-panel').forEach(p => p.style.display = 'none');
-    document.getElementById(`panel-${currentMode}`).style.display = 'block';
-    processBtn.textContent = PROCESS_LABELS[currentMode];
+document.querySelectorAll('.bg-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    bgMode = btn.dataset.bg;
+    document.querySelectorAll('.bg-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+
+    document.getElementById('blur-controls').style.display  = bgMode === 'blur'  ? 'block' : 'none';
+    document.getElementById('solid-controls').style.display = bgMode === 'solid' ? 'block' : 'none';
+    previewWrap.style.display = 'none';
+
+    updateProcessLabel();
   });
 });
+
+function updateProcessLabel() {
+  const labels = {
+    none:  '✂️ 크롭 적용',
+    blur:  '🌫 블러 배경 적용',
+    solid: '🎨 단색 배경 적용',
+  };
+  processBtn.textContent = labels[bgMode];
+}
 
 /* ====================================================
    블러 패널 — 강도 슬라이더
@@ -328,7 +324,7 @@ blurSlider.addEventListener('input', () => {
   blurValueEl.textContent = blurLevel;
 });
 
-blurPreviewBtn.addEventListener('click', () => requestPreview('blur'));
+blurPreviewBtn.addEventListener('click', () => requestPreview());
 
 /* ====================================================
    단색 패널 — 색상 프리셋 + 피커
@@ -353,29 +349,33 @@ document.querySelectorAll('.color-preset').forEach(btn => {
 
 solidColorPicker.addEventListener('input', () => selectColor(solidColorPicker.value));
 
-solidPreviewBtn.addEventListener('click', () => requestPreview('solid'));
+solidPreviewBtn.addEventListener('click', () => requestPreview());
 
 /* ====================================================
    서버 프리뷰 요청
 
-   블러·단색 모드에서 "미리보기" 버튼 클릭 시 호출.
-   서버가 첫 프레임을 실제와 동일한 ffmpeg 필터로 처리해
-   JPEG를 반환하므로 최종 결과물과 화면이 정확히 일치한다.
+   블러·단색 배경 선택 시 "미리보기" 버튼을 누르면 호출된다.
+   항상 현재 선택된 cropPx 좌표를 함께 전송하므로
+   "영역 선택 + 배경"이 합쳐진 결과를 미리 볼 수 있다.
    ==================================================== */
-async function requestPreview(mode) {
+async function requestPreview() {
   if (!uploadedFilename) { showToast('먼저 영상을 올려주세요.', 'error'); return; }
 
-  const btn  = mode === 'blur' ? blurPreviewBtn  : solidPreviewBtn;
-  const wrap = mode === 'blur' ? blurPreviewWrap : solidPreviewWrap;
-  const img  = mode === 'blur' ? blurPreviewImg  : solidPreviewImg;
+  const btn = bgMode === 'blur' ? blurPreviewBtn : solidPreviewBtn;
+  const origText  = btn.textContent;
+  btn.disabled    = true;
+  btn.textContent = '⏳ 생성 중...';
 
-  const origText      = btn.textContent;
-  btn.disabled        = true;
-  btn.textContent     = '⏳ 생성 중...';
-
-  const body = { filename: uploadedFilename, mode };
-  if (mode === 'blur')  body.blur  = blurLevel;
-  else                  body.color = solidColor;
+  const body = {
+    filename: uploadedFilename,
+    bg_mode:  bgMode,
+    crop: {
+      x: Math.round(cropPx.x), y: Math.round(cropPx.y),
+      w: Math.round(cropPx.w), h: Math.round(cropPx.h),
+    },
+  };
+  if (bgMode === 'blur')  body.blur  = blurLevel;
+  else                    body.color = solidColor;
 
   try {
     const res = await fetch('/preview', {
@@ -391,10 +391,9 @@ async function requestPreview(mode) {
     }
 
     const blob = await res.blob();
-    // 이전 Blob URL이 있으면 메모리 해제 후 교체
-    if (img.src && img.src.startsWith('blob:')) URL.revokeObjectURL(img.src);
-    img.src            = URL.createObjectURL(blob);
-    wrap.style.display = 'block';
+    if (previewImg.src && previewImg.src.startsWith('blob:')) URL.revokeObjectURL(previewImg.src);
+    previewImg.src            = URL.createObjectURL(blob);
+    previewWrap.style.display = 'block';
 
   } catch { showToast('프리뷰 오류', 'error'); }
   finally {
@@ -405,9 +404,6 @@ async function requestPreview(mode) {
 
 /* ====================================================
    처리 (크롭·블러·단색 적용)
-
-   /process 로 모드와 파라미터를 전송하면 job_id를 받고,
-   SSE /progress/<job_id> 를 구독해 진행률 바를 갱신한다.
    ==================================================== */
 processBtn.addEventListener('click', async () => {
   if (!uploadedFilename) return;
@@ -419,18 +415,14 @@ processBtn.addEventListener('click', async () => {
   const body = {
     filename:      uploadedFilename,
     original_base: originalBase,
-    mode:          currentMode,
-  };
-  if (currentMode === 'crop') {
-    body.crop = {
+    bg_mode:       bgMode,
+    crop: {
       x: Math.round(cropPx.x), y: Math.round(cropPx.y),
       w: Math.round(cropPx.w), h: Math.round(cropPx.h),
-    };
-  } else if (currentMode === 'blur') {
-    body.blur = blurLevel;
-  } else {
-    body.color = solidColor;
-  }
+    },
+  };
+  if (bgMode === 'blur')  body.blur  = blurLevel;
+  if (bgMode === 'solid') body.color = solidColor;
 
   try {
     const res  = await fetch('/process', {
@@ -458,14 +450,14 @@ processBtn.addEventListener('click', async () => {
       updateProgress(payload.pct, payload.msg || '처리 중...');
 
       if (payload.done) {
-        // 원본이 output/ 으로 이동됐으므로 대본 추출 시 올바른 경로를 참조하도록 갱신
         if (payload.original) uploadedFilename = payload.original;
         hideProgress();
         const dlBtn = document.getElementById('download-btn');
-        dlBtn.href     = `/download/${payload.result}`;
+        dlBtn.href     = `/download/${encodeURIComponent(payload.result)}`;
         dlBtn.download = payload.result;
         resultSec.style.display = 'block';
-        showToast('완성!', 'success');
+        processBtn.disabled = false;
+        showToast('완성! 다운로드 버튼을 눌러주세요.', 'success');
       }
     });
 
@@ -478,9 +470,6 @@ processBtn.addEventListener('click', async () => {
 
 /* ====================================================
    대본 추출 (Whisper STT → SRT)
-
-   SSE로 3단계 진행 표시: 모델 준비 → 음성 인식 → 저장
-   완료 시 SRT 파일 다운로드가 자동으로 시작된다.
    ==================================================== */
 transcribeBtn.addEventListener('click', async () => {
   if (!uploadedFilename) return;
@@ -516,7 +505,7 @@ transcribeBtn.addEventListener('click', async () => {
       if (payload.done && payload.srt) {
         hideProgress();
         const a = document.createElement('a');
-        a.href     = `/download/${payload.srt}`;
+        a.href     = `/download/${encodeURIComponent(payload.srt)}`;
         a.download = payload.srt;
         a.click();
         showToast('대본 추출 완료!', 'success');
@@ -585,10 +574,6 @@ async function fetchYoutube() {
 
 /* ====================================================
    SSE 진행률 구독 헬퍼
-
-   EventSource로 /progress/<job_id> 를 구독하고,
-   수신한 JSON 페이로드를 onData 콜백에 전달한다.
-   done 또는 error 수신 시 연결을 닫는다.
    ==================================================== */
 function subscribeProgress(jobId, onData) {
   const es = new EventSource(`/progress/${jobId}`);
@@ -611,17 +596,27 @@ function subscribeProgress(jobId, onData) {
    ==================================================== */
 function showProgress(msg, pct) {
   progressSec.style.display = 'block';
-  progressFill.style.width  = (pct || 0) + '%';
   progressText.textContent  = msg || '처리 중...';
+  if (!pct) {
+    progressFill.classList.add('indeterminate');
+    progressFill.style.width = '';
+  } else {
+    progressFill.classList.remove('indeterminate');
+    progressFill.style.width = pct + '%';
+  }
 }
 
 function updateProgress(pct, msg) {
-  progressFill.style.width = pct + '%';
+  if (pct > 0) {
+    progressFill.classList.remove('indeterminate');
+    progressFill.style.width = pct + '%';
+  }
   if (msg) progressText.textContent = msg;
 }
 
 function hideProgress() {
   progressSec.style.display = 'none';
+  progressFill.classList.remove('indeterminate');
   progressFill.style.width  = '0%';
 }
 
