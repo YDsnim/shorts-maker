@@ -10,9 +10,11 @@ let cropPx   = { x: 0, y: 0, w: 0, h: 0 };  // 크롭 영역 (실제 픽셀)
 const MIN_PX = 20;  // 크롭 박스 최소 크기
 
 // ── DOM 참조 ─────────────────────────────────────────
-const ytUrl        = document.getElementById('yt-url');
-const ytBtn        = document.getElementById('yt-btn');
-const dropZone     = document.getElementById('drop-zone');
+const ytUrl          = document.getElementById('yt-url');
+const ytBtn          = document.getElementById('yt-btn');
+const dropZone       = document.getElementById('drop-zone');
+const transcribeBtn  = document.getElementById('transcribe-btn');
+const transcribeSec  = document.getElementById('transcribe-section');
 const fileInput    = document.getElementById('file-input');
 const cropCard     = document.getElementById('crop-card');
 const actionCard   = document.getElementById('action-card');
@@ -298,6 +300,9 @@ processBtn.addEventListener('click', async () => {
 
     if (!data.ok) { showToast(data.error || '처리 실패', 'error'); processBtn.disabled = false; return; }
 
+    // 크롭 완료 후 원본은 output/ 으로 이동됐으므로 filename 갱신
+    if (data.original) uploadedFilename = data.original;
+
     const dlBtn = document.getElementById('download-btn');
     dlBtn.href     = `/download/${data.result}`;
     dlBtn.download = data.result;
@@ -324,6 +329,42 @@ function getPoint(e) {
 function resetDrop() {
   dropZone.innerHTML = `<strong>영상을 여기에 끌어다 놓거나 클릭하세요</strong><p>MP4, MOV, AVI, MKV, WebM · 최대 500MB</p>`;
 }
+
+/* ====================================================
+   대본 추출 (Whisper STT → SRT)
+   ==================================================== */
+transcribeBtn.addEventListener('click', async () => {
+  if (!uploadedFilename) return;
+
+  transcribeBtn.disabled   = true;
+  transcribeSec.style.display = 'block';
+
+  try {
+    const res  = await fetch('/transcribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename: uploadedFilename, original_base: originalBase }),
+    });
+    const data = await res.json();
+
+    transcribeSec.style.display = 'none';
+
+    if (!data.ok) { showToast(data.error || '대본 추출 실패', 'error'); return; }
+
+    // SRT 파일 즉시 다운로드
+    const a = document.createElement('a');
+    a.href     = `/download/${data.srt}`;
+    a.download = data.srt;
+    a.click();
+    showToast('대본 추출 완료!', 'success');
+
+  } catch {
+    transcribeSec.style.display = 'none';
+    showToast('오류가 발생했습니다.', 'error');
+  } finally {
+    transcribeBtn.disabled = false;
+  }
+});
 
 /* ====================================================
    YouTube 가져오기

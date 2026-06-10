@@ -72,6 +72,7 @@
   <!-- ── 3단계: 적용 버튼 ────────────────────────── -->
   <div id="action-card" style="display:none">
     <button class="btn btn-primary" id="process-btn">자르기 적용</button>
+    <button class="btn btn-outline" id="transcribe-btn">📝 대본 추출</button>
   </div>
 
   <!-- 진행 표시 -->
@@ -80,6 +81,14 @@
       <div class="progress-bar indeterminate"></div>
     </div>
     <p id="progress-text">처리 중입니다...</p>
+  </div>
+
+  <!-- 대본 추출 진행 표시 -->
+  <div class="card" id="transcribe-section" style="display:none">
+    <div class="progress-bar-wrap">
+      <div class="progress-bar indeterminate"></div>
+    </div>
+    <p id="transcribe-text">대본 추출 중... (영상 길이에 따라 수십 초 소요)</p>
   </div>
 
   <!-- 결과 -->

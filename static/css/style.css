@@ -219,7 +219,12 @@ main {
 }
 
 /* ── 적용 버튼 ────────────────────────────────────── */
-#action-card { margin-bottom: 14px; }
+#action-card {
+  margin-bottom: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
 .btn {
   display: flex;
   align-items: center;
@@ -240,6 +245,13 @@ main {
 .btn-primary:disabled { background: var(--border); color: var(--text-muted); cursor: not-allowed; transform: none; }
 .btn-success { background: var(--success); color: #fff; }
 .btn-success:hover { background: #16a34a; }
+.btn-outline {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1.5px solid var(--border);
+}
+.btn-outline:hover { border-color: var(--text-muted); color: var(--text); }
+.btn-outline:disabled { opacity: .45; cursor: not-allowed; transform: none; }
 
 /* ── 진행 표시 ────────────────────────────────────── */
 .progress-bar-wrap {

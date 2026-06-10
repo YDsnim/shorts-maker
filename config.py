@@ -31,6 +31,9 @@ TTS_VOICES = {
     '한국어 (느리게)':   'ko-slow',
 }
 
+# ── 파일 보관 TTL ───────────────────────────────────
+OUTPUT_TTL_SECONDS = 3600   # output/ 파일 보관 시간 (기본 1시간)
+
 # ── 미래 확장용 API 설정 (지금은 비워둠) ────────────
 CLAUDE_API_KEY = os.environ.get('CLAUDE_API_KEY', '')
 IMAGE_GEN_API_KEY = os.environ.get('IMAGE_GEN_API_KEY', '')

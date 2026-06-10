@@ -5,7 +5,9 @@
 
 import os
 import re
+import shutil
 import subprocess
+import time
 import uuid
 
 from flask import Flask, render_template, request, jsonify, send_file
@@ -19,6 +21,9 @@ app.config['MAX_CONTENT_LENGTH'] = config.MAX_CONTENT_LENGTH
 
 os.makedirs(config.UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(config.OUTPUT_FOLDER, exist_ok=True)
+
+_last_cleanup  = 0.0
+_whisper_model = None
 
 
 def safe_filename(name: str) -> bool:
@@ -44,9 +49,69 @@ def make_output_name(base: str) -> str:
         n += 1
 
 
+def make_srt_name(base: str) -> str:
+    """원본명_transcript_N.srt 형식, 중복 시 N 증가"""
+    n = 1
+    while True:
+        name = f'{base}_transcript_{n}.srt'
+        if not os.path.exists(os.path.join(config.OUTPUT_FOLDER, name)):
+            return name
+        n += 1
+
+
+def cleanup_old_files():
+    """OUTPUT_TTL_SECONDS 이상 된 파일을 uploads/·output/ 에서 정리"""
+    global _last_cleanup
+    now = time.time()
+    if now - _last_cleanup < config.OUTPUT_TTL_SECONDS:
+        return
+    _last_cleanup = now
+    cutoff = now - config.OUTPUT_TTL_SECONDS
+    for folder in (config.OUTPUT_FOLDER, config.UPLOAD_FOLDER):
+        for fname in os.listdir(folder):
+            fpath = os.path.join(folder, fname)
+            try:
+                if os.path.isfile(fpath) and os.path.getmtime(fpath) < cutoff:
+                    os.remove(fpath)
+            except OSError:
+                pass
+
+
+def get_whisper_model():
+    """Whisper small 모델을 한 번만 로드해 캐시"""
+    global _whisper_model
+    if _whisper_model is None:
+        import whisper
+        _whisper_model = whisper.load_model('small')
+    return _whisper_model
+
+
+def _sec_to_srt_time(seconds: float) -> str:
+    ms = int((seconds % 1) * 1000)
+    s  = int(seconds) % 60
+    m  = (int(seconds) // 60) % 60
+    h  = int(seconds) // 3600
+    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+
+def _to_srt(segments) -> str:
+    lines = []
+    for i, seg in enumerate(segments, 1):
+        start = _sec_to_srt_time(seg['start'])
+        end   = _sec_to_srt_time(seg['end'])
+        lines.append(f"{i}\n{start} --> {end}\n{seg['text'].strip()}")
+    return '\n\n'.join(lines) + '\n'
+
+
 def allowed_file(filename: str) -> bool:
     ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
     return ext in config.ALLOWED_EXTENSIONS
+
+
+# ── 요청마다 오래된 파일 정리 (TTL 주기로만 실행) ────
+@app.before_request
+def periodic_cleanup():
+    cleanup_old_files()
 
 
 # ── 메인 페이지 ─────────────────────────────────────
@@ -117,7 +182,11 @@ def process():
             x=int(crop['x']), y=int(crop['y']),
             w=int(crop['w']), h=int(crop['h']),
         )
-        return jsonify({'ok': True, 'result': result_name})
+        # 원본 파일을 output/ 으로 이동 (결과물과 같은 공간)
+        dst = os.path.join(config.OUTPUT_FOLDER, filename)
+        shutil.move(input_path, dst)
+
+        return jsonify({'ok': True, 'result': result_name, 'original': filename})
 
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
@@ -170,6 +239,40 @@ def fetch_youtube():
     except subprocess.CalledProcessError as e:
         err = (e.stderr or '')[-300:]
         return jsonify({'ok': False, 'error': f'다운로드 실패: {err}'}), 500
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+# ── 대본 추출 (Whisper STT → SRT) ───────────────────
+@app.route('/transcribe', methods=['POST'])
+def transcribe():
+    data          = request.get_json(force=True)
+    filename      = data.get('filename', '')
+    original_base = sanitize_base(data.get('original_base', '') or 'video')
+
+    if not filename or not safe_filename(filename):
+        return jsonify({'ok': False, 'error': '잘못된 파일명'}), 400
+
+    # output/ 우선, 없으면 uploads/ 에서 찾기
+    path = os.path.join(config.OUTPUT_FOLDER, filename)
+    if not os.path.exists(path):
+        path = os.path.join(config.UPLOAD_FOLDER, filename)
+    if not os.path.exists(path):
+        return jsonify({'ok': False, 'error': '파일을 찾을 수 없습니다.'}), 404
+
+    try:
+        model  = get_whisper_model()
+        result = model.transcribe(path, language='ko')
+
+        srt_name = make_srt_name(original_base)
+        srt_path = os.path.join(config.OUTPUT_FOLDER, srt_name)
+        with open(srt_path, 'w', encoding='utf-8') as f:
+            f.write(_to_srt(result['segments']))
+
+        return jsonify({'ok': True, 'srt': srt_name})
+
+    except ModuleNotFoundError:
+        return jsonify({'ok': False, 'error': 'openai-whisper가 설치되지 않았습니다. pip install openai-whisper'}), 500
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
 
