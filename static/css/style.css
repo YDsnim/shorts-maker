@@ -292,3 +292,53 @@ main {
   header h1 { font-size: 1rem; }
   .card { padding: 14px; }
 }
+
+/* ── YouTube 입력 ──────────────────────────────────── */
+.or-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 0;
+  color: var(--text-muted);
+  font-size: .8rem;
+}
+.or-divider::before,
+.or-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+#yt-input-wrap {
+  display: flex;
+  gap: 8px;
+}
+#yt-url {
+  flex: 1;
+  padding: 10px 12px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: .9rem;
+  outline: none;
+  transition: border-color .2s;
+}
+#yt-url:focus { border-color: var(--accent); }
+#yt-url::placeholder { color: var(--text-muted); }
+
+.btn-yt {
+  padding: 10px 16px;
+  background: #ff0000;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: .85rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity .2s;
+}
+.btn-yt:hover  { opacity: .85; }
+.btn-yt:disabled { opacity: .45; cursor: not-allowed; }

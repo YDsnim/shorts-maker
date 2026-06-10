@@ -4,6 +4,8 @@
 # =====================================================
 
 import os
+import re
+import subprocess
 import uuid
 
 from flask import Flask, render_template, request, jsonify, send_file
@@ -22,6 +24,24 @@ os.makedirs(config.OUTPUT_FOLDER, exist_ok=True)
 def safe_filename(name: str) -> bool:
     """경로 조작 공격 방지 — 디렉토리 구분자 포함 여부 확인"""
     return os.sep not in name and '/' not in name and '..' not in name
+
+
+def sanitize_base(name: str) -> str:
+    """파일명 베이스 정리 — OS 금지 문자 제거, 공백→언더스코어"""
+    base = name.rsplit('.', 1)[0] if '.' in name else name
+    base = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '', base)
+    base = base.strip().replace(' ', '_')
+    return base[:80] or 'video'
+
+
+def make_output_name(base: str) -> str:
+    """원본명_crop_N.mp4 형식, 중복 시 N 증가"""
+    n = 1
+    while True:
+        name = f'{base}_crop_{n}.mp4'
+        if not os.path.exists(os.path.join(config.OUTPUT_FOLDER, name)):
+            return name
+        n += 1
 
 
 def allowed_file(filename: str) -> bool:
@@ -56,9 +76,10 @@ def upload():
     if not file.filename or not allowed_file(file.filename):
         return jsonify({'ok': False, 'error': f'지원 형식: {", ".join(config.ALLOWED_EXTENSIONS)}'}), 400
 
-    ext      = file.filename.rsplit('.', 1)[-1].lower()
-    filename = f'{uuid.uuid4().hex}.{ext}'
-    save_path = os.path.join(config.UPLOAD_FOLDER, filename)
+    ext           = file.filename.rsplit('.', 1)[-1].lower()
+    filename      = f'{uuid.uuid4().hex}.{ext}'
+    original_base = sanitize_base(file.filename)
+    save_path     = os.path.join(config.UPLOAD_FOLDER, filename)
     file.save(save_path)
 
     try:
@@ -66,15 +87,16 @@ def upload():
     except Exception:
         info = {}
 
-    return jsonify({'ok': True, 'filename': filename, 'info': info})
+    return jsonify({'ok': True, 'filename': filename, 'original_base': original_base, 'info': info})
 
 
 # ── 크롭 처리 ───────────────────────────────────────
 @app.route('/process', methods=['POST'])
 def process():
-    data     = request.get_json(force=True)
-    filename = data.get('filename', '')
-    crop     = data.get('crop')   # { x, y, w, h } — 실제 픽셀 값
+    data          = request.get_json(force=True)
+    filename      = data.get('filename', '')
+    original_base = sanitize_base(data.get('original_base', '') or 'video')
+    crop          = data.get('crop')   # { x, y, w, h } — 실제 픽셀 값
 
     if not filename or not safe_filename(filename):
         return jsonify({'ok': False, 'error': '잘못된 파일명'}), 400
@@ -86,7 +108,7 @@ def process():
     if not crop:
         return jsonify({'ok': False, 'error': '크롭 정보가 없습니다.'}), 400
 
-    result_name = f'shorts_{uuid.uuid4().hex[:8]}.mp4'
+    result_name = make_output_name(original_base)
     result_path = os.path.join(config.OUTPUT_FOLDER, result_name)
 
     try:
@@ -97,6 +119,57 @@ def process():
         )
         return jsonify({'ok': True, 'result': result_name})
 
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+# ── YouTube 영상 가져오기 ────────────────────────────
+@app.route('/fetch-youtube', methods=['POST'])
+def fetch_youtube():
+    data = request.get_json(force=True)
+    url  = (data.get('url') or '').strip()
+
+    if not url or not re.search(r'(youtube\.com|youtu\.be)', url):
+        return jsonify({'ok': False, 'error': '유효하지 않은 YouTube URL'}), 400
+
+    try:
+        # 영상 제목 조회
+        title_result = subprocess.run(
+            ['yt-dlp', '--get-filename', '-o', '%(title)s', '--no-playlist', url],
+            capture_output=True, text=True, timeout=30
+        )
+        raw_title     = title_result.stdout.strip().split('\n')[0] or 'video'
+        original_base = sanitize_base(raw_title)
+
+        temp_name = f'{uuid.uuid4().hex}.mp4'
+        temp_path = os.path.join(config.UPLOAD_FOLDER, temp_name)
+
+        subprocess.run(
+            [
+                'yt-dlp',
+                '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+                '--merge-output-format', 'mp4',
+                '--no-playlist',
+                '-o', temp_path,
+                url,
+            ],
+            capture_output=True, text=True, timeout=300, check=True
+        )
+
+        try:
+            info = vp.get_video_info(temp_path)
+        except Exception:
+            info = {}
+
+        return jsonify({'ok': True, 'filename': temp_name, 'original_base': original_base, 'info': info})
+
+    except FileNotFoundError:
+        return jsonify({'ok': False, 'error': 'yt-dlp가 설치되지 않았습니다.'}), 500
+    except subprocess.TimeoutExpired:
+        return jsonify({'ok': False, 'error': '다운로드 시간 초과 (5분)'}), 500
+    except subprocess.CalledProcessError as e:
+        err = (e.stderr or '')[-300:]
+        return jsonify({'ok': False, 'error': f'다운로드 실패: {err}'}), 500
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
 

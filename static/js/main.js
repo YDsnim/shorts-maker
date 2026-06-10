@@ -4,11 +4,14 @@
 
 // ── 전역 상태 ────────────────────────────────────────
 let uploadedFilename = null;
+let originalBase     = null;   // 다운로드 파일명용 원본 베이스
 let videoDim = { w: 0, h: 0 };   // 실제 영상 픽셀 크기
 let cropPx   = { x: 0, y: 0, w: 0, h: 0 };  // 크롭 영역 (실제 픽셀)
 const MIN_PX = 20;  // 크롭 박스 최소 크기
 
 // ── DOM 참조 ─────────────────────────────────────────
+const ytUrl        = document.getElementById('yt-url');
+const ytBtn        = document.getElementById('yt-btn');
 const dropZone     = document.getElementById('drop-zone');
 const fileInput    = document.getElementById('file-input');
 const cropCard     = document.getElementById('crop-card');
@@ -52,6 +55,7 @@ async function uploadFile(file) {
     if (!data.ok) { showToast(data.error || '업로드 실패', 'error'); resetDrop(); return; }
 
     uploadedFilename = data.filename;
+    originalBase     = data.original_base || 'video';
 
     dropZone.innerHTML = `
       <strong>✅ ${file.name}</strong>
@@ -278,7 +282,8 @@ processBtn.addEventListener('click', async () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        filename: uploadedFilename,
+        filename:      uploadedFilename,
+        original_base: originalBase,
         crop: {
           x: Math.round(cropPx.x),
           y: Math.round(cropPx.y),
@@ -318,6 +323,62 @@ function getPoint(e) {
 
 function resetDrop() {
   dropZone.innerHTML = `<strong>영상을 여기에 끌어다 놓거나 클릭하세요</strong><p>MP4, MOV, AVI, MKV, WebM · 최대 500MB</p>`;
+}
+
+/* ====================================================
+   YouTube 가져오기
+   ==================================================== */
+ytBtn.addEventListener('click', fetchYoutube);
+ytUrl.addEventListener('keydown', e => { if (e.key === 'Enter') fetchYoutube(); });
+
+async function fetchYoutube() {
+  const url = ytUrl.value.trim();
+  if (!url) return;
+
+  ytBtn.disabled = true;
+  ytBtn.textContent = '⏳ 다운로드 중...';
+  dropZone.innerHTML = `<strong>YouTube 영상 다운로드 중...</strong><p>${url}</p>`;
+
+  try {
+    const res  = await fetch('/fetch-youtube', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url }),
+    });
+    const data = await res.json();
+
+    if (!data.ok) {
+      showToast(data.error || '다운로드 실패', 'error');
+      resetDrop();
+      return;
+    }
+
+    uploadedFilename = data.filename;
+    originalBase     = data.original_base || 'video';
+
+    dropZone.innerHTML = `
+      <strong>✅ ${data.original_base}</strong>
+      <p style="color:var(--success)">YouTube 다운로드 완료 · 다시 클릭하면 교체</p>
+    `;
+
+    const info = data.info || {};
+    if (info.width) {
+      document.getElementById('video-info').style.display = 'flex';
+      document.getElementById('video-info').innerHTML =
+        `해상도 <span>${info.width}×${info.height}</span> &nbsp; 길이 <span>${info.duration_str}</span>`;
+    }
+
+    initCropUI(data.filename, info);
+    showToast('YouTube 영상 준비 완료!', 'success');
+    ytUrl.value = '';
+
+  } catch {
+    showToast('네트워크 오류', 'error');
+    resetDrop();
+  } finally {
+    ytBtn.disabled    = false;
+    ytBtn.textContent = '▶ 가져오기';
+  }
 }
 
 let toastTimer;
