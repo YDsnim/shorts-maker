@@ -450,7 +450,6 @@ processBtn.addEventListener('click', async () => {
       updateProgress(payload.pct, payload.msg || '처리 중...');
 
       if (payload.done) {
-        if (payload.original) uploadedFilename = payload.original;
         hideProgress();
         const dlBtn = document.getElementById('download-btn');
         dlBtn.href     = `/download/${encodeURIComponent(payload.result)}`;

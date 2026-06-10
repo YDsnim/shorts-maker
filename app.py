@@ -15,7 +15,6 @@
 import json
 import os
 import re
-import shutil
 import subprocess
 import threading
 import time
@@ -210,10 +209,7 @@ def _run_job_thread(cmd: list, job_id: str, duration: float,
         proc.wait()
 
         if proc.returncode == 0:
-            dst = os.path.join(config.OUTPUT_FOLDER, orig_filename)
-            if os.path.exists(input_path):
-                shutil.move(input_path, dst)
-            _jobs[job_id].update({'pct': 100, 'done': True, 'original': orig_filename, 'msg': '완료!'})
+            _jobs[job_id].update({'pct': 100, 'done': True, 'msg': '완료!'})
         else:
             try:
                 with open(stderr_file, 'r', encoding='utf-8', errors='replace') as f:

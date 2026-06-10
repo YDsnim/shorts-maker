@@ -83,8 +83,7 @@ flowchart LR
 <h2>파일 저장 위치와 TTL 정리</h2>
 <div class="mermaid">
 flowchart TD
-    A[영상 업로드] --> B[("uploads/날짜_원본명.mp4\n임시 보관")]
-    B -->|처리 완료 후 이동| C[("output/날짜_원본명.mp4\n원본 이동")]
+    A[영상 업로드] --> B[("uploads/날짜_원본명.mp4\n임시 보관 — 재작업 가능")]
     B -->|처리 결과| D[("output/날짜_원본명_crop_N.mp4\noutput/날짜_원본명_blur_N.mp4\noutput/날짜_원본명_color_N.mp4")]
     B -->|Whisper| E[("output/날짜_원본명_transcript_N.srt")]
 
