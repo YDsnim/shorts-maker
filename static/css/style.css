@@ -1,0 +1,294 @@
+/* =====================================================
+   style.css — 숏츠 메이커 (크롭 중심 UI)
+   ===================================================== */
+
+:root {
+  --bg:           #0f0f13;
+  --card:         #1a1a24;
+  --border:       #2a2a3a;
+  --accent:       #7c6af7;
+  --accent-hover: #6a58e0;
+  --success:      #22c55e;
+  --error:        #ef4444;
+  --text:         #e8e8f0;
+  --text-muted:   #8888aa;
+  --radius:       14px;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Segoe UI', 'Apple SD Gothic Neo', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 16px;
+  line-height: 1.5;
+  min-height: 100vh;
+}
+
+header {
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  padding: 14px 20px;
+  text-align: center;
+  position: sticky;
+  top: 0;
+  z-index: 200;
+}
+header h1 { font-size: 1.2rem; font-weight: 700; color: var(--accent); }
+
+main {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 16px 14px 60px;
+}
+
+/* ── 카드 ─────────────────────────────────────────── */
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px;
+  margin-bottom: 14px;
+}
+.card-title {
+  font-size: 0.9rem;
+  font-weight: 700;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ── 업로드 드롭존 ────────────────────────────────── */
+#drop-zone {
+  border: 2px dashed var(--border);
+  border-radius: 10px;
+  padding: 36px 16px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color .2s, background .2s;
+}
+#drop-zone:hover, #drop-zone.dragover {
+  border-color: var(--accent);
+  background: rgba(124,106,247,.06);
+}
+#drop-zone strong { display: block; margin-bottom: 6px; }
+#drop-zone p { color: var(--text-muted); font-size: .85rem; }
+#file-input { display: none; }
+
+/* ── 영상 정보 뱃지 ───────────────────────────────── */
+#video-info {
+  display: none;
+  margin-top: 12px;
+  font-size: .82rem;
+  color: var(--text-muted);
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+#video-info span { color: var(--text); font-weight: 600; }
+
+/* ── 크롭 컨테이너 ────────────────────────────────── */
+#crop-container {
+  position: relative;
+  width: 100%;
+  background: #000;
+  border-radius: 8px;
+  overflow: hidden;          /* box-shadow가 컨테이너 밖으로 안 나가게 */
+  touch-action: none;        /* 터치 이벤트 직접 처리 */
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: crosshair;
+}
+
+#preview-video {
+  width: 100%;
+  height: auto;
+  display: block;
+  pointer-events: none;      /* 비디오가 드래그 이벤트 가로채지 않도록 */
+}
+
+/* ── 크롭 박스 ────────────────────────────────────── */
+#crop-box {
+  position: absolute;
+  cursor: move;
+  /* 크롭 박스 밖을 어둡게 */
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.60);
+  border: 2px solid rgba(255, 255, 255, 0.9);
+}
+
+/* ── 드래그 핸들 ──────────────────────────────────── */
+.handle {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  background: #fff;
+  border: 2px solid var(--accent);
+  border-radius: 50%;
+  /* 핸들을 테두리에 걸치게 (반만 안으로) */
+  margin: -7px;
+}
+
+/* 꼭짓점 */
+.h-nw { top: 0;   left: 0;   cursor: nw-resize; }
+.h-ne { top: 0;   right: 0;  cursor: ne-resize; }
+.h-sw { bottom: 0; left: 0;  cursor: sw-resize; }
+.h-se { bottom: 0; right: 0; cursor: se-resize; }
+
+/* 모서리 중앙 */
+.h-n  { top: 0;   left: 50%; cursor: n-resize; }
+.h-s  { bottom: 0; left: 50%; cursor: s-resize; }
+.h-w  { top: 50%; left: 0;   cursor: w-resize; }
+.h-e  { top: 50%; right: 0;  cursor: e-resize; }
+
+/* 모바일: 핸들 터치 영역 확대 */
+.handle::before {
+  content: '';
+  position: absolute;
+  inset: -10px;
+}
+
+/* ── 크롭 컨트롤 (토글 + 초기화) ─────────────────── */
+.crop-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 14px;
+}
+
+/* 토글 스위치 */
+.toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: .9rem;
+  font-weight: 600;
+}
+.toggle-label input { display: none; }
+.toggle-pill {
+  width: 40px;
+  height: 22px;
+  background: var(--border);
+  border-radius: 999px;
+  position: relative;
+  transition: background .2s;
+  flex-shrink: 0;
+}
+.toggle-pill::after {
+  content: '';
+  position: absolute;
+  width: 16px; height: 16px;
+  background: #fff;
+  border-radius: 50%;
+  top: 3px; left: 3px;
+  transition: transform .2s;
+}
+.toggle-label input:checked + .toggle-pill { background: var(--accent); }
+.toggle-label input:checked + .toggle-pill::after { transform: translateX(18px); }
+
+/* 초기화 버튼 */
+.btn-ghost {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-size: .85rem;
+  cursor: pointer;
+  transition: border-color .2s, color .2s;
+}
+.btn-ghost:hover { border-color: var(--text-muted); color: var(--text); }
+
+/* 치수 표시 */
+#crop-dims {
+  margin-top: 10px;
+  font-size: .85rem;
+  color: var(--text-muted);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 뱃지 */
+.badge-ok {
+  margin-top: 8px;
+  text-align: center;
+  font-size: .8rem;
+  color: var(--success);
+}
+
+/* ── 적용 버튼 ────────────────────────────────────── */
+#action-card { margin-bottom: 14px; }
+.btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 15px;
+  border: none;
+  border-radius: 12px;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background .2s, transform .1s;
+}
+.btn:active { transform: scale(.98); }
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover { background: var(--accent-hover); }
+.btn-primary:disabled { background: var(--border); color: var(--text-muted); cursor: not-allowed; transform: none; }
+.btn-success { background: var(--success); color: #fff; }
+.btn-success:hover { background: #16a34a; }
+
+/* ── 진행 표시 ────────────────────────────────────── */
+.progress-bar-wrap {
+  background: var(--border);
+  border-radius: 999px;
+  height: 8px;
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+.progress-bar {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 999px;
+  width: 0;
+  transition: width .4s;
+}
+.progress-bar.indeterminate {
+  width: 40%;
+  animation: slide 1.2s infinite ease-in-out;
+}
+@keyframes slide {
+  0%   { margin-left: -40%; }
+  100% { margin-left: 100%; }
+}
+#progress-text { font-size: .85rem; color: var(--text-muted); text-align: center; }
+
+/* ── 토스트 ───────────────────────────────────────── */
+#toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: #333;
+  color: #fff;
+  padding: 12px 20px;
+  border-radius: 8px;
+  font-size: .9rem;
+  opacity: 0;
+  transition: opacity .3s, transform .3s;
+  pointer-events: none;
+  z-index: 1000;
+  white-space: nowrap;
+  max-width: 90vw;
+}
+#toast.show  { opacity: 1; transform: translateX(-50%) translateY(0); }
+#toast.error   { background: var(--error); }
+#toast.success { background: #166534; }
+
+@media (max-width: 400px) {
+  header h1 { font-size: 1rem; }
+  .card { padding: 14px; }
+}
