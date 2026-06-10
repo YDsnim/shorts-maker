@@ -152,14 +152,30 @@ function initCropBox() {
   const ratio  = vw / vh;
   const target = 9 / 16;
 
+  let cw, ch;
   if (ratio > target + 0.01) {
-    // 가로 영상: 9:16 폭으로 가운데 자르기
-    const cw = Math.round(vh * target);
-    cropPx = { x: Math.round((vw - cw) / 2), y: 0, w: cw, h: vh };
+    // 가로 영상: 높이 기준으로 9:16 박스
+    ch = vh;
+    cw = Math.round(ch * target);
     lock916.checked = true;
   } else {
-    cropPx = { x: 0, y: 0, w: vw, h: vh };
+    // 세로/정방형 영상: 너비 기준으로 9:16 박스
+    cw = vw;
+    ch = Math.round(cw / target);
+    lock916.checked = false;
   }
+
+  // ffmpeg 요구: 2의 배수
+  cw -= cw % 2;
+  ch -= ch % 2;
+
+  // 가로·세로 모두 중앙 배치
+  cropPx = {
+    x: Math.round((vw - cw) / 2),
+    y: Math.round((vh - ch) / 2),
+    w: cw,
+    h: ch,
+  };
 
   renderCropBox();
 }
