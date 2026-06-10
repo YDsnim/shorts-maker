@@ -135,15 +135,15 @@ function initCropUI(filename, info) {
   previewVideo.currentTime = 0;
 
   previewVideo.addEventListener('loadedmetadata', () => {
-    initCropBox();
+    // 카드를 먼저 표시해야 cropContainer.offsetWidth가 0이 아닌 실제 값을 반환함
     editCard.style.display   = 'block';
     actionCard.style.display = 'flex';
+    previewWrap.style.display = 'none';
 
     const ratio = videoDim.w / videoDim.h;
     ratioBadge.style.display = Math.abs(ratio - 9 / 16) < 0.01 ? 'block' : 'none';
 
-    // 새 영상 로드 시 프리뷰 숨기기
-    previewWrap.style.display = 'none';
+    initCropBox();
   }, { once: true });
 }
 
