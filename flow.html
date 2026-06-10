@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>숏츠 메이커 — 흐름도</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 20px;
+      background: #0f0f13;
+      color: #e8e8f0;
+      font-family: 'Segoe UI', 'Apple SD Gothic Neo', sans-serif;
+      font-size: 14px;
+    }
+    h1 { color: #7c6af7; margin-bottom: 6px; font-size: 1.2rem; }
+    h2 { color: #a89af7; margin-top: 32px; margin-bottom: 4px; font-size: 1rem; }
+    .mermaid { background: #1a1a24; border-radius: 12px; padding: 16px; margin-top: 10px; }
+    p { color: #8888aa; font-size: .85rem; margin: 4px 0 0; }
+  </style>
+</head>
+<body>
+
+<h1>🎬 숏츠 메이커 — 프로세스 흐름도</h1>
+<p>브라우저에서 자동으로 렌더링됩니다. 모바일·PC 모두 동일하게 표시됩니다.</p>
+
+<!-- ── 전체 흐름 ──────────────────────────────── -->
+<h2>전체 데이터 흐름</h2>
+<div class="mermaid">
+flowchart TD
+    A([🖥 브라우저]) --> B{영상 소스 선택}
+    B -->|로컬 파일| C[POST /upload]
+    B -->|YouTube URL| D[POST /fetch-youtube\nyt-dlp 다운로드]
+    C --> E[(uploads/UUID.mp4)]
+    D --> E
+
+    E --> F{편집 방식 선택}
+    F -->|✂️ 크롭| G[드래그로 영역 조정]
+    F -->|🌫 블러 배경| H[블러 강도 조절]
+    F -->|🎨 단색 배경| I[배경 색상 선택]
+
+    H --> J[POST /preview\nffmpeg 첫 프레임 처리\n→ JPEG 반환]
+    I --> J
+    J --> K[브라우저에 프리뷰 이미지 표시]
+
+    G --> L[POST /process]
+    K --> L
+
+    L --> M[백그라운드 스레드\nffmpeg 실행]
+    M --> N[GET /progress/job_id\nSSE 진행률 스트리밍]
+    N --> O[(output/결과.mp4\n원본도 이동됨)]
+    O --> P[GET /download/파일명\n브라우저 다운로드]
+
+    style A fill:#1a1a24,stroke:#7c6af7
+    style E fill:#1a1a24,stroke:#2a2a3a
+    style O fill:#1a1a24,stroke:#2a2a3a
+    style J fill:#1a1a24,stroke:#7c6af7
+    style N fill:#1a1a24,stroke:#7c6af7
+</div>
+
+<!-- ── 대본 추출 흐름 ─────────────────────────── -->
+<h2>대본 추출 흐름 (Whisper STT)</h2>
+<div class="mermaid">
+flowchart LR
+    A[(업로드된 영상)] --> B[POST /transcribe]
+    B --> C[백그라운드 스레드]
+    C --> D[모델 준비\n10%]
+    D --> E[Whisper 음성 인식\n30%]
+    E --> F[SRT 파일 저장\n90%]
+    F --> G[완료\n100%]
+
+    B -.->|job_id 반환| H[GET /progress/job_id\nSSE 단계 메시지]
+    G --> I[(output/대본.srt)]
+    I --> J[자동 다운로드 시작]
+
+    style A fill:#1a1a24,stroke:#2a2a3a
+    style I fill:#1a1a24,stroke:#2a2a3a
+    style H fill:#1a1a24,stroke:#7c6af7
+</div>
+
+<!-- ── 파일 관리 흐름 ────────────────────────── -->
+<h2>파일 저장 위치와 TTL 정리</h2>
+<div class="mermaid">
+flowchart TD
+    A[영상 업로드] --> B[(uploads/UUID.mp4\n임시 보관)]
+    B -->|처리 완료| C[(output/UUID.mp4\n원본 이동)]
+    B -->|처리 결과| D[(output/원본명_crop_N.mp4\n결과 파일)]
+    B -->|Whisper| E[(output/원본명_transcript_N.srt)]
+
+    F[매 요청마다\nbefore_request 훅] --> G{마지막 정리\n≥ 1시간?}
+    G -->|Yes| H[1시간 이상 된 파일\n자동 삭제]
+    G -->|No| I[스킵]
+
+    style B fill:#1a1a24,stroke:#ef4444
+    style C fill:#1a1a24,stroke:#22c55e
+    style D fill:#1a1a24,stroke:#22c55e
+    style E fill:#1a1a24,stroke:#22c55e
+</div>
+
+<!-- ── API 엔드포인트 ────────────────────────── -->
+<h2>API 엔드포인트 일람</h2>
+<div class="mermaid">
+flowchart LR
+    subgraph GET
+        G1[/ — 메인 페이지]
+        G2[/uploads/파일명 — 원본 스트리밍]
+        G3[/progress/job_id — SSE 진행률]
+        G4[/download/파일명 — 결과 다운로드]
+    end
+    subgraph POST
+        P1[/upload — 파일 업로드]
+        P2[/fetch-youtube — YT 다운로드]
+        P3[/preview — 프리뷰 JPEG]
+        P4[/process — 영상 처리]
+        P5[/transcribe — 대본 추출]
+    end
+</div>
+
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'dark',
+    themeVariables: {
+      primaryColor: '#1a1a24',
+      primaryBorderColor: '#7c6af7',
+      primaryTextColor: '#e8e8f0',
+      lineColor: '#7c6af7',
+      secondaryColor: '#0f0f13',
+      background: '#0f0f13',
+      mainBkg: '#1a1a24',
+      nodeBorder: '#2a2a3a',
+      clusterBkg: '#1a1a24',
+    }
+  });
+</script>
+
+</body>
+</html>
