@@ -129,6 +129,12 @@ function uploadFile(file) {
    크롭 UI 초기화
    ==================================================== */
 function initCropUI(filename, info) {
+  // 새 영상 로드 전 이전 상태 초기화
+  editCard.style.display    = 'none';
+  actionCard.style.display  = 'none';
+  previewWrap.style.display = 'none';
+  cropPx = { x: 0, y: 0, w: 0, h: 0 };
+
   videoDim = { w: info.width || 1280, h: info.height || 720 };
 
   previewVideo.src = `/uploads/${encodeURIComponent(filename)}`;
@@ -403,8 +409,9 @@ async function requestPreview() {
   btn.textContent = '⏳ 생성 중...';
 
   const body = {
-    filename: uploadedFilename,
-    bg_mode:  bgMode,
+    filename:  uploadedFilename,
+    bg_mode:   bgMode,
+    seek_time: previewVideo.currentTime,
     crop: {
       x: Math.round(cropPx.x), y: Math.round(cropPx.y),
       w: Math.round(cropPx.w), h: Math.round(cropPx.h),
@@ -593,7 +600,7 @@ async function fetchYoutube() {
       <strong>✅ ${data.original_base}</strong>
       <p style="color:var(--success)">${info.duration_str ? info.duration_str + ' · ' : ''}${info.width ? info.width + '×' + info.height : ''}</p>
       <button class="btn" id="go-edit-btn" style="margin-top:12px">✂️ 편집 시작</button>
-      <p style="font-size:.8rem;color:var(--muted);margin-top:6px">다른 영상을 쓰려면 위 URL창을 수정하세요</p>
+      <p style="font-size:.8rem;color:var(--muted);margin-top:6px">다른 영상으로 교체하려면 파일을 업로드하거나 URL을 다시 입력하세요</p>
     `;
     document.getElementById('go-edit-btn').addEventListener('click', e => {
       e.stopPropagation();

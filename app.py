@@ -313,15 +313,18 @@ def preview():
     if not os.path.exists(path):
         return jsonify({'ok': False, 'error': '파일을 찾을 수 없습니다.'}), 404
 
-    # 캐시 키: bg_mode + crop 좌표 + 파라미터 조합
+    seek_time = float(data.get('seek_time', 0) or 0)
+
+    # 캐시 키: bg_mode + crop 좌표 + 파라미터 + seek_time 조합
     c = crop or {}
     crop_key = f"{int(c.get('x',0))}_{int(c.get('y',0))}_{int(c.get('w',0))}_{int(c.get('h',0))}"
+    seek_key = f"{seek_time:.3f}"
     if bg_mode == 'blur':
-        key = f"blur_{int(data.get('blur', 20))}_{crop_key}"
+        key = f"blur_{int(data.get('blur', 20))}_{crop_key}_{seek_key}"
     elif bg_mode == 'solid':
-        key = f"solid_{data.get('color', '000000').lstrip('#')}_{crop_key}"
+        key = f"solid_{data.get('color', '000000').lstrip('#')}_{crop_key}_{seek_key}"
     else:
-        key = f"none_{crop_key}"
+        key = f"none_{crop_key}_{seek_key}"
 
     base         = os.path.splitext(filename)[0]
     preview_name = f"prev_{base}_{key}.jpg"
@@ -335,6 +338,7 @@ def preview():
                 crop=crop,
                 blur=int(data.get('blur', 20)),
                 color=data.get('color', '000000'),
+                seek_time=seek_time,
             )
         except Exception as e:
             return jsonify({'ok': False, 'error': str(e)}), 500

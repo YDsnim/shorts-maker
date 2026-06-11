@@ -238,13 +238,16 @@ def build_solid_cmd(input_path: str, output_path: str,
 def make_preview(input_path: str, output_path: str,
                  bg_mode: str = 'none', crop: dict = None,
                  blur: int = 20, color: str = '000000',
+                 seek_time: float = 0,
                  target_w: int = 1080, target_h: int = 1920) -> None:
     """
-    영상의 첫 프레임 1장을 추출해 지정 배경 모드로 처리한 JPEG를 생성한다.
+    영상의 특정 시각 프레임 1장을 추출해 지정 배경 모드로 처리한 JPEG를 생성한다.
 
     bg_mode: 'none'(크롭만) | 'blur'(블러 배경) | 'solid'(단색 배경)
     crop: 선택 영역 딕트 {x, y, w, h} — None이면 전체 영상
+    seek_time: 추출할 시각(초) — 미리보기 영상과 동일한 프레임 표시용
     """
+    ss = ['-ss', str(seek_time)] if seek_time > 0 else []
     if bg_mode == 'blur':
         if crop:
             cx, cy = int(crop['x']), int(crop['y'])
@@ -264,7 +267,7 @@ def make_preview(input_path: str, output_path: str,
             f'[blurred][fg]overlay=(W-w)/2:(H-h)/2[out]'
         )
         cmd = [
-            'ffmpeg', '-i', input_path,
+            'ffmpeg', *ss, '-i', input_path,
             '-frames:v', '1',
             '-filter_complex', fc,
             '-map', '[out]',
@@ -284,7 +287,7 @@ def make_preview(input_path: str, output_path: str,
             f'pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2:color=0x{color}'
         )
         cmd = [
-            'ffmpeg', '-i', input_path,
+            'ffmpeg', *ss, '-i', input_path,
             '-frames:v', '1',
             '-vf', vf,
             '-y', output_path,
@@ -295,13 +298,13 @@ def make_preview(input_path: str, output_path: str,
             w = int(crop['w']) & ~1
             h = int(crop['h']) & ~1
             cmd = [
-                'ffmpeg', '-i', input_path,
+                'ffmpeg', *ss, '-i', input_path,
                 '-frames:v', '1',
                 '-vf', f'crop={w}:{h}:{x}:{y}',
                 '-y', output_path,
             ]
         else:
-            cmd = ['ffmpeg', '-i', input_path, '-frames:v', '1', '-y', output_path]
+            cmd = ['ffmpeg', *ss, '-i', input_path, '-frames:v', '1', '-y', output_path]
     _run(cmd)
 
 
