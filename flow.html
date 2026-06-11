@@ -33,7 +33,8 @@ flowchart TD
     B -->|YouTube URL| D[POST /fetch-youtube\nyt-dlp 다운로드]
     C --> E[("uploads/날짜_원본명.mp4")]
     D --> E2[("uploads/날짜_원본명_yt.mp4")]
-    E2 --> F
+    E2 --> E3["영상 정보 표시\n✂️ 편집 시작 버튼"]
+    E3 --> F
 
     E --> F{편집 방식 선택}
     F -->|✂️ 크롭| G[드래그로 영역 조정]
@@ -42,7 +43,7 @@ flowchart TD
 
     H --> J[POST /preview\nffmpeg 첫 프레임 처리\n→ JPEG 반환]
     I --> J
-    J --> K[브라우저에 프리뷰 이미지 표시]
+    J --> K[브라우저에 프리뷰 이미지 3장 표시\n(20%·50%·80% 구간)]
 
     G --> L[POST /process]
     K --> L
@@ -87,8 +88,8 @@ flowchart TD
     B -->|처리 결과| D[("output/날짜_원본명_crop_N.mp4\noutput/날짜_원본명_blur_N.mp4\noutput/날짜_원본명_color_N.mp4")]
     B -->|Whisper| E[("output/날짜_원본명_transcript_N.srt")]
 
-    F[매 요청마다\nbefore_request 훅] --> G{마지막 정리\n≥ 1시간?}
-    G -->|Yes| H[1시간 이상 된 파일\n자동 삭제]
+    F[매 요청마다\nbefore_request 훅] --> G{마지막 정리\n≥ 5분?}
+    G -->|Yes| H[5분 이상 된 파일\n자동 삭제]
     G -->|No| I[스킵]
 
     style B fill:#1a1a24,stroke:#ef4444
