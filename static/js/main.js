@@ -562,11 +562,6 @@ async function fetchYoutube() {
     uploadedFilename = data.filename;
     originalBase     = data.original_base || 'video';
 
-    dropZone.innerHTML = `
-      <strong>✅ ${data.original_base}</strong>
-      <p style="color:var(--success)">YouTube 다운로드 완료 · 다시 클릭하면 교체</p>
-    `;
-
     const info = data.info || {};
     if (info.width) {
       document.getElementById('video-info').style.display = 'flex';
@@ -574,7 +569,16 @@ async function fetchYoutube() {
         `해상도 <span>${info.width}×${info.height}</span> &nbsp; 길이 <span>${info.duration_str}</span>`;
     }
 
-    initCropUI(data.filename, info);
+    dropZone.innerHTML = `
+      <strong>✅ ${data.original_base}</strong>
+      <p style="color:var(--success)">${info.duration_str ? info.duration_str + ' · ' : ''}${info.width ? info.width + '×' + info.height : ''}</p>
+      <button class="btn" id="go-edit-btn" style="margin-top:12px">✂️ 편집 시작</button>
+      <p style="font-size:.8rem;color:var(--muted);margin-top:6px">다른 영상을 쓰려면 위 URL창을 수정하세요</p>
+    `;
+    document.getElementById('go-edit-btn').addEventListener('click', () => {
+      initCropUI(data.filename, info);
+    });
+
     showToast('YouTube 영상 준비 완료!', 'success');
     ytUrl.value = '';
 
