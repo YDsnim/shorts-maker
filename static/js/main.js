@@ -72,6 +72,14 @@ fileInput.addEventListener('change', () => { if (fileInput.files[0]) uploadFile(
 function uploadFile(file) {
   if (file.size > 500 * 1024 * 1024) { showToast('파일이 500MB를 초과합니다.', 'error'); return; }
 
+  // 새 파일 선택 시 이전 편집 상태 즉시 초기화
+  editCard.style.display    = 'none';
+  actionCard.style.display  = 'none';
+  previewWrap.style.display = 'none';
+  progressSec.style.display = 'none';
+  resultSec.style.display   = 'none';
+  cropPx = { x: 0, y: 0, w: 0, h: 0 };
+
   dropZone.innerHTML = `<strong>업로드 중... 0%</strong><p>${file.name}</p>`;
   uploadProgressWrap.style.display = 'block';
   uploadProgressFill.style.width   = '0%';
@@ -574,6 +582,15 @@ async function fetchYoutube() {
 
   ytBtn.disabled    = true;
   ytBtn.textContent = '⏳ 다운로드 중...';
+
+  // 새 영상 다운로드 시작 시 이전 편집 상태 즉시 초기화
+  editCard.style.display    = 'none';
+  actionCard.style.display  = 'none';
+  previewWrap.style.display = 'none';
+  progressSec.style.display = 'none';
+  resultSec.style.display   = 'none';
+  cropPx = { x: 0, y: 0, w: 0, h: 0 };
+
   dropZone.innerHTML = `<strong>YouTube 영상 다운로드 중...</strong><p>${url}</p>`;
 
   try {
