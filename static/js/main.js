@@ -142,8 +142,8 @@ function initCropUI(filename, info) {
     const ratio = videoDim.w / videoDim.h;
     ratioBadge.style.display = Math.abs(ratio - 9 / 16) < 0.01 ? 'block' : 'none';
 
-    // 0.001s seek → 브라우저가 첫 프레임 데이터를 다운로드해 렌더링
-    previewVideo.currentTime = 0.001;
+    // 검정 인트로 프레임 건너뜀: 5% 또는 최대 3초
+    previewVideo.currentTime = Math.min(previewVideo.duration * 0.05, 3);
     initCropBox();
   }, { once: true });
 }
