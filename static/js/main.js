@@ -306,6 +306,25 @@ function onDragMove(e) {
 
 resetBtn.addEventListener('click', initCropBox);
 
+lock916.addEventListener('change', () => {
+  if (!lock916.checked) return;
+
+  let w = cropPx.w;
+  let h = Math.round(w * 16 / 9);
+
+  if (h > videoDim.h) {
+    h = videoDim.h;
+    w = Math.round(h * 9 / 16);
+  }
+
+  w -= w % 2;
+  h -= h % 2;
+
+  const y = Math.min(cropPx.y, videoDim.h - h);
+  cropPx = { x: cropPx.x, y, w, h };
+  renderCropBox();
+});
+
 /* ====================================================
    배경 모드 선택
    ==================================================== */

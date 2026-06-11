@@ -149,6 +149,17 @@ main {
   inset: -10px;
 }
 
+@media (max-width: 768px) {
+  .handle {
+    width: 22px;
+    height: 22px;
+    margin: -11px;
+  }
+  .handle::before {
+    inset: -14px; /* 터치 영역: 22 + 14×2 = 50px */
+  }
+}
+
 /* ── 크롭 컨트롤 (토글 + 초기화) ─────────────────── */
 .crop-controls {
   display: flex;
