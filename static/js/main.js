@@ -594,7 +594,8 @@ async function fetchYoutube() {
       <button class="btn" id="go-edit-btn" style="margin-top:12px">✂️ 편집 시작</button>
       <p style="font-size:.8rem;color:var(--muted);margin-top:6px">다른 영상을 쓰려면 위 URL창을 수정하세요</p>
     `;
-    document.getElementById('go-edit-btn').addEventListener('click', () => {
+    document.getElementById('go-edit-btn').addEventListener('click', e => {
+      e.stopPropagation();
       initCropUI(data.filename, info);
     });
 
