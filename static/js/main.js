@@ -50,7 +50,8 @@ const solidColorPicker   = document.getElementById('solid-color-picker');
 const solidPreviewBtn    = document.getElementById('solid-preview-btn');
 const solidColorLabel    = document.getElementById('solid-color-label');
 const previewWrap        = document.getElementById('preview-wrap');
-const previewImg         = document.getElementById('preview-img');
+const previewImgs        = [1, 2, 3].map(i => document.getElementById(`preview-img-${i}`));
+const previewLabels      = [1, 2, 3].map(i => document.getElementById(`preview-label-${i}`));
 const toast              = document.getElementById('toast');
 
 /* ====================================================
@@ -408,6 +409,12 @@ solidPreviewBtn.addEventListener('click', () => requestPreview());
    항상 현재 선택된 cropPx 좌표를 함께 전송하므로
    "영역 선택 + 배경"이 합쳐진 결과를 미리 볼 수 있다.
    ==================================================== */
+function fmtTime(sec) {
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
 async function requestPreview() {
   if (!uploadedFilename) { showToast('먼저 영상을 올려주세요.', 'error'); return; }
 
@@ -416,34 +423,47 @@ async function requestPreview() {
   btn.disabled    = true;
   btn.textContent = '⏳ 생성 중...';
 
-  const body = {
-    filename:  uploadedFilename,
-    bg_mode:   bgMode,
-    seek_time: previewVideo.currentTime,
-    crop: {
-      x: Math.round(cropPx.x), y: Math.round(cropPx.y),
-      w: Math.round(cropPx.w), h: Math.round(cropPx.h),
-    },
+  const dur = previewVideo.duration || 10;
+  const seekTimes = [dur * 0.2, dur * 0.5, dur * 0.8];
+
+  const makeBody = (seekTime) => {
+    const body = {
+      filename:  uploadedFilename,
+      bg_mode:   bgMode,
+      seek_time: seekTime,
+      crop: {
+        x: Math.round(cropPx.x), y: Math.round(cropPx.y),
+        w: Math.round(cropPx.w), h: Math.round(cropPx.h),
+      },
+    };
+    if (bgMode === 'blur')  body.blur  = blurLevel;
+    else                    body.color = solidColor;
+    return body;
   };
-  if (bgMode === 'blur')  body.blur  = blurLevel;
-  else                    body.color = solidColor;
 
   try {
-    const res = await fetch('/preview', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify(body),
-    });
+    const results = await Promise.all(seekTimes.map(t =>
+      fetch('/preview', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(makeBody(t)),
+      })
+    ));
 
-    if (!res.ok) {
-      const j = await res.json().catch(() => ({}));
-      showToast(j.error || '프리뷰 생성 실패', 'error');
-      return;
+    for (const res of results) {
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        showToast(j.error || '프리뷰 생성 실패', 'error');
+        return;
+      }
     }
 
-    const blob = await res.blob();
-    if (previewImg.src && previewImg.src.startsWith('blob:')) URL.revokeObjectURL(previewImg.src);
-    previewImg.src            = URL.createObjectURL(blob);
+    const blobs = await Promise.all(results.map(r => r.blob()));
+    blobs.forEach((blob, i) => {
+      if (previewImgs[i].src && previewImgs[i].src.startsWith('blob:')) URL.revokeObjectURL(previewImgs[i].src);
+      previewImgs[i].src     = URL.createObjectURL(blob);
+      previewLabels[i].textContent = fmtTime(seekTimes[i]);
+    });
     previewWrap.style.display = 'block';
 
   } catch { showToast('프리뷰 오류', 'error'); }
