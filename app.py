@@ -134,7 +134,7 @@ def get_whisper_model():
     global _whisper_model
     if _whisper_model is None:
         from faster_whisper import WhisperModel
-        _whisper_model = WhisperModel('small', device='cpu', compute_type='int8')
+        _whisper_model = WhisperModel('medium', device='cuda', compute_type='float32')
     return _whisper_model
 
 
