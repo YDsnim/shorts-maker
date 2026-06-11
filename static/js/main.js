@@ -131,8 +131,7 @@ function uploadFile(file) {
 function initCropUI(filename, info) {
   videoDim = { w: info.width || 1280, h: info.height || 720 };
 
-  previewVideo.src         = `/uploads/${encodeURIComponent(filename)}`;
-  previewVideo.currentTime = 0;
+  previewVideo.src = `/uploads/${encodeURIComponent(filename)}`;
 
   previewVideo.addEventListener('loadedmetadata', () => {
     // 카드를 먼저 표시해야 cropContainer.offsetWidth가 0이 아닌 실제 값을 반환함
@@ -143,6 +142,8 @@ function initCropUI(filename, info) {
     const ratio = videoDim.w / videoDim.h;
     ratioBadge.style.display = Math.abs(ratio - 9 / 16) < 0.01 ? 'block' : 'none';
 
+    // 0.001s seek → 브라우저가 첫 프레임 데이터를 다운로드해 렌더링
+    previewVideo.currentTime = 0.001;
     initCropBox();
   }, { once: true });
 }

@@ -257,7 +257,7 @@ def serve_upload(filename: str):
     path = os.path.join(config.UPLOAD_FOLDER, filename)
     if not os.path.exists(path):
         return '', 404
-    return send_file(path)
+    return send_file(path, conditional=True, etag=True, max_age=0)
 
 
 @app.route('/upload', methods=['POST'])
