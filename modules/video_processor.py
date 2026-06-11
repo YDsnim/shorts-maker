@@ -12,6 +12,11 @@ import json
 import os
 
 
+def valid_crop(crop: dict) -> bool:
+    """crop 딕트가 유효한(w·h > 0) 경우에만 True."""
+    return bool(crop and int(crop.get('w', 0)) > 0 and int(crop.get('h', 0)) > 0)
+
+
 def get_video_info(filepath: str) -> dict:
     """
     ffprobe로 영상 정보를 읽어옵니다.
@@ -177,7 +182,7 @@ def build_blur_cmd(input_path: str, output_path: str,
     없으면 원본 전체를 축소해 가운데에 올린다.
     blur 값이 클수록 배경이 더 흐려진다 (권장: 10~50).
     """
-    if crop:
+    if valid_crop(crop):
         cx, cy = int(crop['x']), int(crop['y'])
         cw = int(crop['w']) & ~1
         ch = int(crop['h']) & ~1
@@ -216,7 +221,7 @@ def build_solid_cmd(input_path: str, output_path: str,
     """
     color = color.lstrip('#')
     crop_filter = ''
-    if crop:
+    if valid_crop(crop):
         cx, cy = int(crop['x']), int(crop['y'])
         cw = int(crop['w']) & ~1
         ch = int(crop['h']) & ~1
@@ -249,7 +254,7 @@ def make_preview(input_path: str, output_path: str,
     """
     ss = ['-ss', str(seek_time)] if seek_time > 0 else []
     if bg_mode == 'blur':
-        if crop:
+        if valid_crop(crop):
             cx, cy = int(crop['x']), int(crop['y'])
             cw = int(crop['w']) & ~1
             ch = int(crop['h']) & ~1
@@ -276,7 +281,7 @@ def make_preview(input_path: str, output_path: str,
     elif bg_mode == 'solid':
         color = color.lstrip('#')
         crop_filter = ''
-        if crop:
+        if valid_crop(crop):
             cx, cy = int(crop['x']), int(crop['y'])
             cw = int(crop['w']) & ~1
             ch = int(crop['h']) & ~1
@@ -293,7 +298,7 @@ def make_preview(input_path: str, output_path: str,
             '-y', output_path,
         ]
     else:  # 'none' — 크롭 영역만 미리보기
-        if crop:
+        if valid_crop(crop):
             x, y = int(crop['x']), int(crop['y'])
             w = int(crop['w']) & ~1
             h = int(crop['h']) & ~1
