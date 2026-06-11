@@ -128,13 +128,13 @@ def cleanup_old_files():
 
 def get_whisper_model():
     """
-    Whisper small 모델을 반환한다 (처음 한 번만 로드, 이후 캐시 재사용).
-    첫 실행 시 약 483MB를 다운로드하고 메모리에 로드하는 데 수 초가 걸린다.
+    faster-whisper small 모델을 반환한다 (처음 한 번만 로드, 이후 캐시 재사용).
+    첫 실행 시 모델을 다운로드하고 메모리에 로드하는 데 수 초가 걸린다.
     """
     global _whisper_model
     if _whisper_model is None:
-        import whisper
-        _whisper_model = whisper.load_model('small')
+        from faster_whisper import WhisperModel
+        _whisper_model = WhisperModel('small', device='cpu', compute_type='int8')
     return _whisper_model
 
 
@@ -154,12 +154,12 @@ def _sec_to_srt_time(seconds: float) -> str:
 
 
 def _to_srt(segments) -> str:
-    """Whisper 세그먼트 목록을 SRT 파일 문자열로 변환한다."""
+    """faster-whisper 세그먼트 목록을 SRT 파일 문자열로 변환한다."""
     lines = []
     for i, seg in enumerate(segments, 1):
-        start = _sec_to_srt_time(seg['start'])
-        end   = _sec_to_srt_time(seg['end'])
-        lines.append(f"{i}\n{start} --> {end}\n{seg['text'].strip()}")
+        start = _sec_to_srt_time(seg.start)
+        end   = _sec_to_srt_time(seg.end)
+        lines.append(f"{i}\n{start} --> {end}\n{seg.text.strip()}")
     return '\n\n'.join(lines) + '\n'
 
 
@@ -556,19 +556,20 @@ def transcribe():
             model = get_whisper_model()
 
             _jobs[job_id].update({'msg': '음성 인식 중... (2/3)', 'pct': 30})
-            result = model.transcribe(_path, language='ko')
+            segments, _ = model.transcribe(_path, language='ko')
+            segments = list(segments)
 
             _jobs[job_id].update({'msg': 'SRT 저장 중... (3/3)', 'pct': 90})
             srt_name = make_srt_name(_base)
             srt_path = os.path.join(config.OUTPUT_FOLDER, srt_name)
             with open(srt_path, 'w', encoding='utf-8') as f:
-                f.write(_to_srt(result['segments']))
+                f.write(_to_srt(segments))
 
             _jobs[job_id].update({'pct': 100, 'done': True, 'srt': srt_name, 'msg': '완료'})
 
         except ModuleNotFoundError:
             _jobs[job_id].update({'done': True,
-                                  'error': 'openai-whisper가 설치되지 않았습니다. pip install openai-whisper'})
+                                  'error': 'faster-whisper가 설치되지 않았습니다. pip install faster-whisper'})
         except Exception as e:
             _jobs[job_id].update({'done': True, 'error': str(e)})
 
