@@ -593,6 +593,159 @@ def download(filename: str):
     return send_file(path, as_attachment=True, download_name=filename)
 
 
+# ─────────────────────────────────────────────────────
+# 영상 창작 파이프라인 라우트
+# 주제 → 대본(Claude) → 음성(edge-tts) → 배경(Pexels) → 자막(Whisper) → 조립(ffmpeg)
+# ─────────────────────────────────────────────────────
+
+@app.route('/pipeline/check-config')
+def pipeline_check_config():
+    """
+    파이프라인에 필요한 API 키 설정 여부를 확인한다.
+    프론트엔드가 시작 시 호출해 경고를 표시하는 데 사용한다.
+    """
+    try:
+        import auto_pipeline.config as pc
+        return jsonify({
+            'ok': True,
+            'claude_key_set':  bool(pc.CLAUDE_API_KEY),
+            'pexels_key_set':  bool(pc.PEXELS_API_KEY),
+        })
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/pipeline/generate-script', methods=['POST'])
+def pipeline_generate_script():
+    """
+    Claude API로 숏츠 대본과 배경영상 검색 키워드를 생성한다.
+    비용: claude-haiku 기준 편당 약 1~2원.
+    """
+    data  = request.get_json(force=True)
+    topic = (data.get('topic') or '').strip()
+
+    if not topic:
+        return jsonify({'ok': False, 'error': '주제를 입력해주세요.'}), 400
+
+    try:
+        import auto_pipeline.config as pc
+        from auto_pipeline.generate_script import generate_script
+
+        if not pc.CLAUDE_API_KEY:
+            return jsonify({
+                'ok': False,
+                'error': 'CLAUDE_API_KEY 환경변수가 설정되지 않았습니다.\n'
+                         'export CLAUDE_API_KEY=sk-ant-... 후 서버를 재시작하세요.',
+            }), 400
+
+        result = generate_script(topic, pc.CLAUDE_API_KEY, pc.CLAUDE_MODEL)
+        return jsonify({
+            'ok':      True,
+            'script':  result.get('script', ''),
+            'keywords': result.get('keywords', []),
+        })
+
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/pipeline/run', methods=['POST'])
+def pipeline_run():
+    """
+    대본 승인 후 전 과정(음성·배경·자막·조립)을 백그라운드로 실행한다.
+    완료까지 2~5분 소요. SSE /progress/<job_id> 로 진행률을 받는다.
+    """
+    data     = request.get_json(force=True)
+    script   = (data.get('script') or '').strip()
+    keywords = data.get('keywords') or ['background', 'nature', 'abstract']
+    topic    = (data.get('topic') or 'shorts').strip()
+
+    if not script:
+        return jsonify({'ok': False, 'error': '대본이 없습니다.'}), 400
+
+    try:
+        import auto_pipeline.config as pc
+    except Exception as e:
+        return jsonify({'ok': False, 'error': f'파이프라인 설정 오류: {e}'}), 500
+
+    # 결과 파일명 생성: 숏츠_{주제}_{N}.mp4
+    original_base = sanitize_base(topic)
+    result_name   = _make_pipeline_name(original_base)
+    result_path   = os.path.join(config.OUTPUT_FOLDER, result_name)
+
+    job_id = uuid.uuid4().hex[:8]
+    _jobs[job_id] = {
+        'pct': 0, 'done': False, 'error': None,
+        'result': result_name, 'original': None, 'srt': None,
+        'msg': '준비 중...',
+    }
+
+    def _run():
+        import shutil
+        import tempfile
+
+        tmp        = tempfile.mkdtemp()
+        voice_path = os.path.join(tmp, 'voice.mp3')
+        bg_path    = os.path.join(tmp, 'background.mp4')
+
+        try:
+            # ── 1. TTS 음성 생성 ─────────────────────────
+            _jobs[job_id].update({'pct': 5, 'msg': '🔊 음성 생성 중...'})
+            from auto_pipeline.generate_voice import generate_voice, get_audio_duration
+            generate_voice(script, voice_path, voice=pc.TTS_VOICE, rate=pc.TTS_RATE)
+
+            duration = get_audio_duration(voice_path)
+            if duration <= 0:
+                raise RuntimeError("음성 파일 생성에 실패했습니다.")
+
+            # ── 2. Pexels 배경 영상 수집 ─────────────────
+            _jobs[job_id].update({'pct': 20, 'msg': '🎥 배경 영상 수집 중...'})
+
+            if not pc.PEXELS_API_KEY:
+                raise RuntimeError(
+                    'PEXELS_API_KEY가 설정되지 않았습니다.\n'
+                    'https://www.pexels.com/api 에서 무료 발급 후\n'
+                    'export PEXELS_API_KEY=... 로 설정하세요.'
+                )
+
+            from auto_pipeline.get_background import search_videos, download_best_video
+            videos = search_videos(keywords, pc.PEXELS_API_KEY)
+            if not videos:
+                raise RuntimeError(
+                    f"Pexels에서 '{' '.join(keywords)}' 영상을 찾지 못했습니다.\n"
+                    "대본 재생성 후 다른 주제를 시도해보세요."
+                )
+
+            _jobs[job_id].update({'pct': 30, 'msg': '🎥 배경 영상 다운로드 중...'})
+            download_best_video(videos, bg_path, min_duration=duration)
+
+            # ── 3~5. 트리밍 + 음성 합치기 + Whisper + 자막 소각 ──
+            _jobs[job_id].update({'pct': 40, 'msg': '⚙️ 영상 조립 중...'})
+            from auto_pipeline.assemble import assemble_stages
+            assemble_stages(voice_path, bg_path, result_path, duration, _jobs, job_id)
+
+            # assemble_stages 내부에서 pct=100, done=True 로 설정함
+            _jobs[job_id].update({'result': result_name})
+
+        except Exception as e:
+            _jobs[job_id].update({'done': True, 'error': str(e)})
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    threading.Thread(target=_run, daemon=True).start()
+    return jsonify({'ok': True, 'job_id': job_id})
+
+
+def _make_pipeline_name(base: str) -> str:
+    """숏츠_{주제}_{N}.mp4 형식, output/ 에 이미 있으면 N을 올린다."""
+    n = 1
+    while True:
+        name = f'숏츠_{base}_{n}.mp4'
+        if not os.path.exists(os.path.join(config.OUTPUT_FOLDER, name)):
+            return name
+        n += 1
+
+
 # ── 실행 ────────────────────────────────────────────
 if __name__ == '__main__':
     print("=" * 45)

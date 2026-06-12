@@ -366,6 +366,133 @@ main {
 .btn-yt:hover  { opacity: .85; }
 .btn-yt:disabled { opacity: .45; cursor: not-allowed; }
 
+/* ── 앱 모드 전환 탭 (편집 / 창작) ────────────────── */
+#app-mode-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.app-mode-btn {
+  flex: 1;
+  padding: 11px 8px;
+  background: var(--card);
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+  color: var(--text-muted);
+  font-size: .9rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color .2s, color .2s, background .2s;
+  text-align: center;
+}
+.app-mode-btn:hover  { border-color: var(--accent); color: var(--text); }
+.app-mode-btn.active {
+  border-color: var(--accent);
+  background: rgba(124,106,247,.14);
+  color: var(--text);
+}
+
+/* ── API 키 경고 배너 ─────────────────────────────── */
+.warning-banner {
+  background: rgba(239,68,68,.12);
+  border: 1px solid var(--error);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  font-size: .83rem;
+  color: #fca5a5;
+  white-space: pre-line;
+  line-height: 1.6;
+}
+
+/* ── 주제 입력 ────────────────────────────────────── */
+#topic-input {
+  width: 100%;
+  padding: 12px 14px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  font-size: .95rem;
+  outline: none;
+  transition: border-color .2s;
+}
+#topic-input:focus { border-color: var(--accent); }
+#topic-input::placeholder { color: var(--text-muted); }
+
+/* ── 비용 배지 ────────────────────────────────────── */
+.cost-badge {
+  display: inline-block;
+  background: rgba(124,106,247,.2);
+  color: var(--accent);
+  font-size: .75rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+/* ── 대본 텍스트 에어리어 ─────────────────────────── */
+#script-textarea {
+  width: 100%;
+  padding: 12px 14px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  font-size: .88rem;
+  line-height: 1.65;
+  resize: vertical;
+  outline: none;
+  font-family: inherit;
+  transition: border-color .2s;
+}
+#script-textarea:focus { border-color: var(--accent); }
+
+/* ── 파이프라인 단계 인디케이터 ──────────────────── */
+.pipeline-steps {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+.pipeline-step {
+  flex: 1;
+  text-align: center;
+  font-size: .72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--bg);
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 4px;
+  line-height: 1.4;
+  transition: border-color .3s, color .3s, background .3s;
+}
+.pipeline-step.active {
+  border-color: var(--accent);
+  color: var(--text);
+  background: rgba(124,106,247,.1);
+}
+.pipeline-step.done {
+  border-color: var(--success);
+  color: var(--success);
+  background: rgba(34,197,94,.08);
+}
+.pipeline-step-arrow {
+  color: var(--border);
+  font-size: .8rem;
+  flex-shrink: 0;
+}
+
+/* ── 편집 모드 탭 ──────────────────────────────────── */
+.mode-tabs {
+  display: flex;
+  gap: 6px;
+  margin-top: 16px;
+  margin-bottom: 4px;
+}
+
 /* ── 배경 처리 선택 버튼 ──────────────────────────── */
 .bg-selector {
   display: flex;

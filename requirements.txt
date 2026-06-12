@@ -3,3 +3,7 @@ Werkzeug==3.0.3
 gTTS==2.5.4
 yt-dlp
 faster-whisper
+# ── 영상 창작 파이프라인 (auto_pipeline/) ──────────
+anthropic          # Claude API — 대본 자동 생성 (유료, 편당 ~1~2원)
+edge-tts           # Microsoft TTS — 한국어 음성 생성 (무료)
+requests           # Pexels API HTTP 요청 (무료)
