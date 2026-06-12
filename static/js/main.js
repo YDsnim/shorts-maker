@@ -727,3 +727,216 @@ function showToast(msg, type = '') {
   toast.className   = 'show ' + type;
   toastTimer = setTimeout(() => { toast.className = ''; }, 3000);
 }
+
+/* ====================================================
+   앱 모드 탭 전환 (편집 ↔ 창작)
+   ==================================================== */
+document.querySelectorAll('.app-mode-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const mode = btn.dataset.app;
+    document.querySelectorAll('.app-mode-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('edit-mode').style.display   = mode === 'edit'   ? 'block' : 'none';
+    document.getElementById('create-mode').style.display = mode === 'create' ? 'block' : 'none';
+    // 창작 모드 진입 시 API 키 설정 상태 확인
+    if (mode === 'create') checkPipelineConfig();
+  });
+});
+
+/* ====================================================
+   창작 파이프라인 — 상태
+   ==================================================== */
+let pipelineKeywords = [];   // 대본 생성 시 받은 Pexels 검색 키워드
+let pipelineTopic    = '';   // 현재 주제
+
+// DOM 참조 (창작 모드 전용)
+const topicInput          = document.getElementById('topic-input');
+const genScriptBtn        = document.getElementById('gen-script-btn');
+const scriptCard          = document.getElementById('script-card');
+const scriptTextarea      = document.getElementById('script-textarea');
+const approveScriptBtn    = document.getElementById('approve-script-btn');
+const regenScriptBtn      = document.getElementById('regen-script-btn');
+const pipelineProgressCard = document.getElementById('pipeline-progress-card');
+const pipelineFill        = document.getElementById('pipeline-fill');
+const pipelineText        = document.getElementById('pipeline-text');
+const pipelineResultCard  = document.getElementById('pipeline-result-card');
+const pipelineDownloadBtn = document.getElementById('pipeline-download-btn');
+const pipelineNewBtn      = document.getElementById('pipeline-new-btn');
+const apiWarning          = document.getElementById('api-warning');
+
+// 단계 인디케이터 요소
+const PSTEPS = {
+  voice:    document.getElementById('pstep-voice'),
+  bg:       document.getElementById('pstep-bg'),
+  sub:      document.getElementById('pstep-sub'),
+  assemble: document.getElementById('pstep-assemble'),
+};
+
+/* API 키 설정 상태 확인 */
+async function checkPipelineConfig() {
+  try {
+    const res  = await fetch('/pipeline/check-config');
+    const data = await res.json();
+    if (!data.ok) return;
+
+    const warnings = [];
+    if (!data.claude_key_set)  warnings.push('⚠️ CLAUDE_API_KEY 미설정 — 대본 자동 생성 불가\nexport CLAUDE_API_KEY=sk-ant-...');
+    if (!data.pexels_key_set)  warnings.push('⚠️ PEXELS_API_KEY 미설정 — 배경 영상 수집 불가\nexport PEXELS_API_KEY=...\n(https://www.pexels.com/api 에서 무료 발급)');
+
+    if (warnings.length > 0) {
+      apiWarning.textContent     = warnings.join('\n\n');
+      apiWarning.style.display   = 'block';
+    } else {
+      apiWarning.style.display   = 'none';
+    }
+  } catch { /* 네트워크 오류는 무시 */ }
+}
+
+/* ====================================================
+   Step 1: 대본 생성
+   ==================================================== */
+genScriptBtn.addEventListener('click', generateScript);
+topicInput.addEventListener('keydown', e => { if (e.key === 'Enter') generateScript(); });
+regenScriptBtn.addEventListener('click', generateScript);
+
+async function generateScript() {
+  const topic = topicInput.value.trim();
+  if (!topic) { showToast('주제를 입력해주세요.', 'error'); return; }
+
+  pipelineTopic       = topic;
+  genScriptBtn.disabled    = true;
+  genScriptBtn.textContent = '⏳ 생성 중...';
+  scriptCard.style.display = 'none';
+
+  try {
+    const res  = await fetch('/pipeline/generate-script', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ topic }),
+    });
+    const data = await res.json();
+
+    if (!data.ok) { showToast(data.error || '대본 생성 실패', 'error'); return; }
+
+    scriptTextarea.value     = data.script || '';
+    pipelineKeywords         = data.keywords || [];
+    scriptCard.style.display = 'block';
+    // 스크롤해서 대본 카드 보이게
+    scriptCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  } catch { showToast('네트워크 오류', 'error'); }
+  finally {
+    genScriptBtn.disabled    = false;
+    genScriptBtn.textContent = '🤖 대본 자동 생성';
+  }
+}
+
+/* ====================================================
+   Step 2: 승인 → 파이프라인 실행
+   ==================================================== */
+approveScriptBtn.addEventListener('click', async () => {
+  const script = scriptTextarea.value.trim();
+  if (!script) { showToast('대본이 비어있습니다.', 'error'); return; }
+
+  approveScriptBtn.disabled    = true;
+  scriptCard.style.display     = 'none';
+  pipelineProgressCard.style.display = 'block';
+  pipelineResultCard.style.display   = 'none';
+
+  // 단계 인디케이터 초기화
+  Object.values(PSTEPS).forEach(el => el.classList.remove('active', 'done'));
+  PSTEPS.voice.classList.add('active');
+  pipelineFill.style.width = '0%';
+  pipelineText.textContent = '준비 중...';
+
+  try {
+    const res  = await fetch('/pipeline/run', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({
+        script,
+        keywords: pipelineKeywords,
+        topic:    pipelineTopic,
+      }),
+    });
+    const data = await res.json();
+
+    if (!data.ok) {
+      showToast(data.error || '파이프라인 실행 실패', 'error');
+      pipelineProgressCard.style.display = 'none';
+      scriptCard.style.display           = 'block';
+      approveScriptBtn.disabled          = false;
+      return;
+    }
+
+    subscribeProgress(data.job_id, payload => {
+      if (payload.error) {
+        pipelineText.textContent           = '❌ ' + payload.error;
+        pipelineProgressCard.style.display = 'none';
+        scriptCard.style.display           = 'block';
+        approveScriptBtn.disabled          = false;
+        showToast('파이프라인 오류', 'error');
+        return;
+      }
+
+      const pct = payload.pct || 0;
+      pipelineFill.style.width = pct + '%';
+      if (payload.msg) pipelineText.textContent = payload.msg;
+
+      // 진행률에 따라 단계 인디케이터 업데이트
+      _updatePipelineSteps(pct);
+
+      if (payload.done) {
+        Object.values(PSTEPS).forEach(el => { el.classList.remove('active'); el.classList.add('done'); });
+        pipelineProgressCard.style.display = 'none';
+        pipelineResultCard.style.display   = 'block';
+        pipelineDownloadBtn.href           = `/download/${payload.result}`;
+        pipelineDownloadBtn.download       = payload.result;
+        showToast('숏츠 완성!', 'success');
+      }
+    });
+
+  } catch {
+    showToast('네트워크 오류', 'error');
+    pipelineProgressCard.style.display = 'none';
+    scriptCard.style.display           = 'block';
+    approveScriptBtn.disabled          = false;
+  }
+});
+
+/* 진행률 % 에 따라 단계 인디케이터를 active/done으로 바꾼다 */
+function _updatePipelineSteps(pct) {
+  // 각 단계 완료 기준 %: 음성(20), 배경(40), 자막(88), 조립(100)
+  const steps = [
+    { el: PSTEPS.voice,    done: 20 },
+    { el: PSTEPS.bg,       done: 40 },
+    { el: PSTEPS.sub,      done: 88 },
+    { el: PSTEPS.assemble, done: 100 },
+  ];
+  let reachedActive = false;
+  for (let i = steps.length - 1; i >= 0; i--) {
+    const { el, done } = steps[i];
+    if (pct >= done) {
+      el.classList.remove('active'); el.classList.add('done');
+    } else if (!reachedActive) {
+      el.classList.remove('done'); el.classList.add('active');
+      reachedActive = true;
+    } else {
+      el.classList.remove('active', 'done');
+    }
+  }
+}
+
+/* ====================================================
+   새 숏츠 만들기 버튼 — 창작 UI 초기화
+   ==================================================== */
+pipelineNewBtn.addEventListener('click', () => {
+  topicInput.value             = '';
+  scriptTextarea.value         = '';
+  pipelineKeywords             = [];
+  pipelineTopic                = '';
+  scriptCard.style.display     = 'none';
+  pipelineResultCard.style.display   = 'none';
+  approveScriptBtn.disabled    = false;
+  document.getElementById('topic-card').scrollIntoView({ behavior: 'smooth' });
+});

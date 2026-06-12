@@ -15,6 +15,17 @@
 
 <main>
 
+  <!-- ── 앱 모드 탭 (편집 / 창작) ───────────────── -->
+  <div id="app-mode-bar">
+    <button class="app-mode-btn active" data-app="edit">✏️ 편집</button>
+    <button class="app-mode-btn" data-app="create">🎬 영상 창작</button>
+  </div>
+
+  <!-- ════════════════════════════════════════════ -->
+  <!--  편집 모드 (기존 UI)                          -->
+  <!-- ════════════════════════════════════════════ -->
+  <div id="edit-mode">
+
   <!-- ── 1단계: 업로드 ───────────────────────────── -->
   <div class="card" id="upload-card">
     <div class="card-title"><span class="icon">📁</span> 영상 올리기</div>
@@ -135,6 +146,79 @@
     <a id="download-btn" class="btn btn-success" href="#" download>📥 완성된 영상 다운로드</a>
     <p class="result-hint">다운로드 후 다른 영역으로 다시 변환하려면 영상을 다시 업로드해 주세요.</p>
   </div>
+
+  </div><!-- /edit-mode -->
+
+  <!-- ════════════════════════════════════════════ -->
+  <!--  창작 모드 (파이프라인 UI)                    -->
+  <!-- ════════════════════════════════════════════ -->
+  <div id="create-mode" style="display:none">
+
+    <!-- API 키 경고 배너 (키 미설정 시 표시) -->
+    <div id="api-warning" class="warning-banner" style="display:none"></div>
+
+    <!-- ── Step 1: 주제 입력 ───────────────────── -->
+    <div class="card" id="topic-card">
+      <div class="card-title"><span class="icon">💡</span> 숏츠 주제 입력</div>
+      <input type="text" id="topic-input"
+             placeholder="예: 한국인이 모르는 심리학 사실 5가지"
+             autocomplete="off" maxlength="100">
+      <button class="btn btn-primary" id="gen-script-btn" style="margin-top:12px">
+        🤖 대본 자동 생성
+      </button>
+      <p class="mode-desc" style="margin-top:10px;margin-bottom:0">
+        Claude AI가 60초 분량 대본을 작성합니다. <span class="cost-badge">약 1~2원/편</span>
+      </p>
+    </div>
+
+    <!-- ── Step 2: 대본 검토·수정 ──────────────── -->
+    <div class="card" id="script-card" style="display:none">
+      <div class="card-title"><span class="icon">📝</span> 대본 검토 · 수정</div>
+      <textarea id="script-textarea" rows="9"
+                placeholder="생성된 대본이 여기에 표시됩니다..."></textarea>
+      <p class="mode-desc" style="margin-top:8px;margin-bottom:12px">
+        내용을 직접 수정해도 됩니다. 확인 후 아래 버튼을 누르세요.
+      </p>
+      <button class="btn btn-success" id="approve-script-btn">✅ 승인 · 제작 시작</button>
+      <button class="btn btn-ghost" id="regen-script-btn" style="margin-top:8px">
+        🔄 다시 생성
+      </button>
+    </div>
+
+    <!-- ── Step 3: 제작 진행 ────────────────────── -->
+    <div class="card" id="pipeline-progress-card" style="display:none">
+      <div class="card-title"><span class="icon">⚙️</span> 제작 중...</div>
+      <!-- 단계 인디케이터 -->
+      <div class="pipeline-steps">
+        <div class="pipeline-step" id="pstep-voice">🔊<br>음성</div>
+        <div class="pipeline-step-arrow">→</div>
+        <div class="pipeline-step" id="pstep-bg">🎥<br>배경</div>
+        <div class="pipeline-step-arrow">→</div>
+        <div class="pipeline-step" id="pstep-sub">📝<br>자막</div>
+        <div class="pipeline-step-arrow">→</div>
+        <div class="pipeline-step" id="pstep-assemble">🎬<br>조립</div>
+      </div>
+      <!-- 진행률 바 -->
+      <div class="progress-bar-wrap" style="margin-top:14px">
+        <div class="progress-bar" id="pipeline-fill"></div>
+      </div>
+      <p id="pipeline-text" style="font-size:.85rem;color:var(--text-muted);text-align:center;margin-top:8px">
+        준비 중...
+      </p>
+    </div>
+
+    <!-- ── Step 4: 완성 ──────────────────────────── -->
+    <div class="card" id="pipeline-result-card" style="display:none">
+      <div class="card-title"><span class="icon">🎉</span> 숏츠 완성!</div>
+      <a id="pipeline-download-btn" class="btn btn-success" href="#" download>
+        📥 숏츠 다운로드
+      </a>
+      <button class="btn btn-outline" id="pipeline-new-btn" style="margin-top:8px">
+        ➕ 새 숏츠 만들기
+      </button>
+    </div>
+
+  </div><!-- /create-mode -->
 
 </main>
 
