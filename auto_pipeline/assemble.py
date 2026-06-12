@@ -83,14 +83,23 @@ def assemble_stages(voice_path: str, bg_path: str,
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+_whisper_model = None
+
+def _get_whisper_model():
+    global _whisper_model
+    if _whisper_model is None:
+        from faster_whisper import WhisperModel
+        _whisper_model = WhisperModel('medium', device='cuda', compute_type='float32')
+    return _whisper_model
+
+
 def _generate_subtitles(voice_path: str, srt_path: str) -> None:
     """
     faster-whisper medium 모델로 음성 파일의 단어 타이밍을 추출하고 SRT를 저장합니다.
     voice_path: TTS로 만든 mp3 파일 (한국어)
     srt_path:   저장할 SRT 파일 경로
     """
-    from faster_whisper import WhisperModel
-    model = WhisperModel('medium', device='cuda', compute_type='float32')
+    model = _get_whisper_model()
     segments, _info = model.transcribe(voice_path, language='ko')
     _write_srt(list(segments), srt_path)
 
@@ -113,7 +122,7 @@ def _write_srt(segments: list, srt_path: str) -> None:
 
 def _run_ffmpeg(cmd: list) -> None:
     """ffmpeg 명령을 실행하고 오류 시 예외를 던집니다."""
-    result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8')
+    result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
     if result.returncode != 0:
         err = result.stderr.strip().splitlines()[-10:]
         raise RuntimeError('\n'.join(err))

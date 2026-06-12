@@ -55,7 +55,7 @@ def get_audio_duration(audio_path: str) -> float:
         '-show_format',
         audio_path,
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8')
+    result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
     try:
         data = json.loads(result.stdout)
         return float(data.get('format', {}).get('duration', 0))
