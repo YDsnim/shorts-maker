@@ -295,8 +295,21 @@
           </div>
         </div>
 
+        <!-- 미리보기 시점 슬라이더 -->
+        <div style="margin-top:10px;display:flex;align-items:center;gap:8px">
+          <span style="font-size:.75rem;color:var(--text-muted);white-space:nowrap">미리보기 시점</span>
+          <input type="range" id="preview-seek-slider" min="0" max="30" step="0.5" value="3" style="flex:1">
+          <span id="preview-seek-label" style="font-size:.75rem;color:var(--accent);min-width:38px;text-align:right">3.0s</span>
+        </div>
+
         <p id="source-filename-label" style="font-size:.75rem;color:var(--text-muted);text-align:center;margin-top:6px"></p>
         <button class="btn btn-outline" id="source-refresh-btn" style="margin-top:10px;width:100%">🔄 미리보기 갱신</button>
+      </div>
+
+      <!-- 커스텀 텍스트 레이어 -->
+      <div style="margin-top:12px">
+        <button class="btn btn-outline" id="add-text-layer-btn" style="width:100%">＋ 텍스트 레이어 추가</button>
+        <div id="custom-layers-container" style="margin-top:8px;display:flex;flex-direction:column;gap:8px"></div>
       </div>
 
       <!-- 위치값 저장용 hidden inputs -->

@@ -737,6 +737,7 @@ checkPipelineConfig();
    메인 소스 영상 업로드 + 템플릿 미리보기
    ==================================================== */
 let sourceFilename = null;
+let sourceDuration = 0;
 
 const sourceDropZone    = document.getElementById('source-drop-zone');
 const sourceFileInput   = document.getElementById('source-file-input');
@@ -747,6 +748,119 @@ const sourcePreviewWrap = document.getElementById('source-preview-wrap');
 const sourcePreviewImg  = document.getElementById('source-preview-img');
 const sourceFilenameLabel = document.getElementById('source-filename-label');
 const sourceRefreshBtn  = document.getElementById('source-refresh-btn');
+
+// ── 미리보기 시점 슬라이더 ──────────────────────────
+const seekSlider = document.getElementById('preview-seek-slider');
+const seekLabel  = document.getElementById('preview-seek-label');
+seekSlider.addEventListener('input', () => {
+  seekLabel.textContent = parseFloat(seekSlider.value).toFixed(1) + 's';
+  debouncedPreview();
+});
+
+// ── 커스텀 텍스트 레이어 ────────────────────────────
+let customLayers  = [];
+let _layerCounter = 0;
+
+document.getElementById('add-text-layer-btn').addEventListener('click', () => addCustomLayer());
+
+function addCustomLayer(init = {}) {
+  const id       = 'cl-' + (++_layerCounter);
+  const y        = init.y         || 500;
+  const fontSize = init.font_size || 50;
+  const color    = init.color     || '#ffffff';
+  const text     = init.text      || '';
+
+  customLayers.push({ id, text, y, font_size: fontSize, color });
+
+  const container = document.getElementById('custom-layers-container');
+  const card      = document.createElement('div');
+  card.id         = 'layer-card-' + id;
+  card.style.cssText = 'background:var(--surface-2,#222);border:1px solid var(--border,#333);border-radius:8px;padding:10px;display:flex;flex-direction:column;gap:6px;';
+  card.innerHTML = `
+    <div style="display:flex;align-items:center;gap:6px">
+      <input type="text" placeholder="텍스트 입력" value="${text.replace(/"/g, '&quot;')}"
+             style="flex:1;background:var(--surface,#1a1a1a);border:1px solid var(--border,#333);border-radius:6px;padding:6px 8px;color:#fff;font-size:.9rem"
+             data-layer="${id}" class="layer-text-input">
+      <input type="color" value="${color}" data-layer="${id}" class="layer-color-input"
+             style="width:32px;height:32px;border:none;border-radius:4px;cursor:pointer;padding:2px">
+      <button data-layer="${id}" class="layer-del-btn" style="background:#c0392b;color:#fff;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:.85rem">✕</button>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <span style="font-size:.75rem;color:var(--text-muted,#888)">크기</span>
+      <button data-layer="${id}" data-delta="-2" class="layer-sz-btn" style="background:none;border:1px solid var(--border,#333);border-radius:4px;padding:2px 8px;color:#fff;cursor:pointer">−</button>
+      <span data-layer="${id}" class="layer-sz-num" style="font-size:.85rem;min-width:28px;text-align:center">${fontSize}pt</span>
+      <button data-layer="${id}" data-delta="2" class="layer-sz-btn" style="background:none;border:1px solid var(--border,#333);border-radius:4px;padding:2px 8px;color:#fff;cursor:pointer">+</button>
+      <span style="font-size:.75rem;color:var(--text-muted,#888);margin-left:8px">Y위치</span>
+      <span data-layer="${id}" class="layer-y-num" style="font-size:.85rem;color:var(--accent,#f59e0b);min-width:36px">${y}px</span>
+    </div>`;
+  container.appendChild(card);
+
+  // 드래그 핸들을 미리보기 이미지 위에 생성
+  const wrap   = document.getElementById('preview-drag-wrap');
+  const handle = document.createElement('div');
+  handle.className     = 'drag-handle';
+  handle.id            = 'dh-layer-' + id;
+  handle.dataset.layer = id;
+  handle.style.cssText = `border-color:#60a5fa;top:${(y / 1920 * 100).toFixed(2)}%`;
+  handle.innerHTML     = `<span class="dh-badge"><span class="dh-name" style="color:#60a5fa">레이어</span></span>`;
+  wrap.appendChild(handle);
+
+  // 드래그 이벤트 연결
+  const onStart = (e) => {
+    e.preventDefault();
+    const rect = wrap.getBoundingClientRect();
+    _drag = {
+      handle,
+      key:    null,
+      layerId: id,
+      rect,
+      startY: e.touches ? e.touches[0].clientY : e.clientY,
+      startV: getLayerY(id),
+    };
+  };
+  handle.addEventListener('mousedown',  onStart);
+  handle.addEventListener('touchstart', onStart, { passive: false });
+
+  // 텍스트 입력 → 레이어 업데이트
+  card.querySelector('.layer-text-input').addEventListener('input', (e) => {
+    setLayerProp(id, 'text', e.target.value);
+    debouncedPreview();
+  });
+  // 색상 변경
+  card.querySelector('.layer-color-input').addEventListener('input', (e) => {
+    setLayerProp(id, 'color', e.target.value);
+    debouncedPreview();
+  });
+  // 크기 버튼
+  card.querySelectorAll('.layer-sz-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const delta = parseInt(btn.dataset.delta);
+      const cur   = getLayerProp(id, 'font_size') || 50;
+      const next  = Math.max(12, Math.min(120, cur + delta));
+      setLayerProp(id, 'font_size', next);
+      card.querySelector(`.layer-sz-num[data-layer="${id}"]`).textContent = next + 'pt';
+      debouncedPreview();
+    });
+  });
+  // 삭제 버튼
+  card.querySelector('.layer-del-btn').addEventListener('click', () => removeCustomLayer(id));
+
+  debouncedPreview();
+}
+
+function removeCustomLayer(id) {
+  customLayers = customLayers.filter(l => l.id !== id);
+  document.getElementById('layer-card-' + id)?.remove();
+  document.getElementById('dh-layer-' + id)?.remove();
+  debouncedPreview();
+}
+
+function getLayerY(id)       { return (customLayers.find(l => l.id === id) || {}).y || 500; }
+function getLayerProp(id, k) { return (customLayers.find(l => l.id === id) || {})[k]; }
+function setLayerProp(id, k, v) {
+  const layer = customLayers.find(l => l.id === id);
+  if (layer) layer[k] = v;
+}
 
 sourceDropZone.addEventListener('click', () => sourceFileInput.click());
 sourceDropZone.addEventListener('dragover', e => {
@@ -790,6 +904,12 @@ function uploadSourceFile(file) {
       const data = JSON.parse(xhr.responseText);
       if (data.ok) {
         sourceFilename = data.filename;
+        sourceDuration = data.duration || 0;
+        if (sourceDuration > 0) {
+          seekSlider.max = Math.floor(sourceDuration);
+          seekSlider.value = Math.min(3, Math.floor(sourceDuration));
+          seekLabel.textContent = parseFloat(seekSlider.value).toFixed(1) + 's';
+        }
         sourceFilenameLabel.textContent = file.name;
         sourceUploadText.textContent    = '미리보기 생성 중...';
         await requestTemplatePreview();
@@ -915,16 +1035,32 @@ document.addEventListener('mousemove', (e) => {
   if (!_drag) return;
   const dy = e.clientY - _drag.startY;
   const dv = (dy / _drag.rect.height) * 1920;
-  const v  = setPosVal(_drag.key, _drag.startV + dv);
-  _drag.handle.style.top = (v / 1920 * 100) + '%';
+  if (_drag.layerId) {
+    const v = Math.max(0, Math.min(1900, Math.round(_drag.startV + dv)));
+    setLayerProp(_drag.layerId, 'y', v);
+    _drag.handle.style.top = (v / 1920 * 100) + '%';
+    const ySpan = document.querySelector(`.layer-y-num[data-layer="${_drag.layerId}"]`);
+    if (ySpan) ySpan.textContent = v + 'px';
+  } else {
+    const v = setPosVal(_drag.key, _drag.startV + dv);
+    _drag.handle.style.top = (v / 1920 * 100) + '%';
+  }
 });
 document.addEventListener('touchmove', (e) => {
   if (!_drag) return;
   e.preventDefault();
   const dy = e.touches[0].clientY - _drag.startY;
   const dv = (dy / _drag.rect.height) * 1920;
-  const v  = setPosVal(_drag.key, _drag.startV + dv);
-  _drag.handle.style.top = (v / 1920 * 100) + '%';
+  if (_drag.layerId) {
+    const v = Math.max(0, Math.min(1900, Math.round(_drag.startV + dv)));
+    setLayerProp(_drag.layerId, 'y', v);
+    _drag.handle.style.top = (v / 1920 * 100) + '%';
+    const ySpan = document.querySelector(`.layer-y-num[data-layer="${_drag.layerId}"]`);
+    if (ySpan) ySpan.textContent = v + 'px';
+  } else {
+    const v = setPosVal(_drag.key, _drag.startV + dv);
+    _drag.handle.style.top = (v / 1920 * 100) + '%';
+  }
 }, { passive: false });
 
 document.addEventListener('mouseup',  () => { if (_drag) { _drag = null; debouncedPreview(); } });
@@ -1006,12 +1142,14 @@ async function requestTemplatePreview() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        filename:    sourceFilename,
-        template:    tpl,
+        filename:     sourceFilename,
+        template:     tpl,
         title,
-        positions:   getPositions(),
-        styles:      getStyles(),
-        source_text: getSourceText(),
+        positions:    getPositions(),
+        styles:       getStyles(),
+        source_text:  getSourceText(),
+        seek_time:    parseFloat(seekSlider?.value || 3),
+        custom_layers: customLayers,
       }),
     });
     const data = await res.json();
@@ -1199,6 +1337,7 @@ approveScriptBtn.addEventListener('click', async () => {
         positions:       getPositions(),
         styles:          getStyles(),
         source_text:     getSourceText(),
+        custom_layers:   customLayers,
       }),
     });
     const data = await res.json();
@@ -1307,10 +1446,21 @@ pipelineNewBtn.addEventListener('click', () => {
   approveScriptBtn.disabled          = false;
 
   // ── 소스 업로드 초기화 ──
-  sourceFilename                     = null;
+  sourceFilename = null;
+  sourceDuration = 0;
   document.getElementById('source-preview-wrap').style.display = 'none';
   document.getElementById('source-drop-zone').style.display    = 'block';
   document.getElementById('source-upload-progress').style.display = 'none';
+
+  // ── 슬라이더 초기화 ──
+  seekSlider.value = 3;
+  seekSlider.max   = 30;
+  seekLabel.textContent = '3.0s';
+
+  // ── 커스텀 레이어 초기화 ──
+  customLayers = [];
+  document.getElementById('custom-layers-container').innerHTML = '';
+  document.querySelectorAll('[id^="dh-layer-"]').forEach(el => el.remove());
 
   // ── 출처 텍스트 초기화 ──
   const srcTxt = document.getElementById('source-text-input');

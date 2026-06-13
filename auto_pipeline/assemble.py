@@ -11,7 +11,8 @@ import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from modules.subtitle import build_ass_file, burn_subtitles
-from modules.banner   import generate_banner_png, generate_title_overlay_png, generate_source_overlay_png
+from modules.banner   import (generate_banner_png, generate_title_overlay_png,
+                               generate_source_overlay_png, generate_custom_layers_png)
 from modules.template import get_template
 
 MAX_SUBTITLE_CHARS = 15
@@ -29,10 +30,12 @@ def assemble_stages(voice_path: str, bg_paths,
                     positions: dict = None,
                     styles: dict = None,
                     source_text: str = '',
-                    use_subtitle: bool = True) -> None:
+                    use_subtitle: bool = True,
+                    custom_layers: list = None) -> None:
     tmp = tempfile.mkdtemp()
-    positions = positions or {}
-    styles    = styles    or {}
+    positions     = positions     or {}
+    styles        = styles        or {}
+    custom_layers = custom_layers or []
 
     try:
         # ── 1. 배경 영상 준비 ────────────────────────────
@@ -109,7 +112,7 @@ def assemble_stages(voice_path: str, bg_paths,
         jobs[job_id].update({'pct': 94, 'msg': '🎨 템플릿 합성 중...'})
         templated = os.path.join(tmp, 'templated.mp4')
         _apply_template(subtitled, title or '', template, tmp, templated,
-                        positions, styles, source_text)
+                        positions, styles, source_text, custom_layers)
 
         # ── 6. 이라스토야 오버레이 ────────────────────────
         if overlay_specs:
@@ -384,11 +387,11 @@ def _build_silver_crown_bg(bg_paths, duration: float,
 
 def _apply_template(subtitled: str, title: str, tpl_key: str, tmp: str, output_path: str,
                     positions: dict = None, styles: dict = None,
-                    source_text: str = '') -> None:
+                    source_text: str = '', custom_layers: list = None) -> None:
 
-
-    pos = positions or {}
-    sty = styles    or {}
+    pos           = positions     or {}
+    sty           = styles        or {}
+    custom_layers = custom_layers or []
 
     if tpl_key == 'silver_crown':
         cur = subtitled
@@ -409,23 +412,40 @@ def _apply_template(subtitled: str, title: str, tpl_key: str, tmp: str, output_p
         generate_source_overlay_png(source_png, 'silver_crown',
                                     positions=pos, styles=sty,
                                     custom_text=source_text or None)
+        next_path = os.path.join(tmp, 'after_source.mp4') if custom_layers else output_path
         _run_ffmpeg([
             'ffmpeg', '-i', cur, '-i', source_png,
             '-filter_complex', '[0:v][1:v]overlay=0:0',
-            '-c:a', 'copy', '-y', output_path,
+            '-c:a', 'copy', '-y', next_path,
         ])
+        cur = next_path
 
     else:  # namnam (기본)
         if title:
             banner_png = os.path.join(tmp, 'banner.png')
             generate_banner_png(title, banner_png, 'namnam', styles=sty)
+            next_path = os.path.join(tmp, 'after_banner.mp4') if custom_layers else output_path
             _run_ffmpeg([
                 'ffmpeg', '-i', subtitled, '-i', banner_png,
                 '-filter_complex', '[0:v][1:v]overlay=0:0',
-                '-c:a', 'copy', '-y', output_path,
+                '-c:a', 'copy', '-y', next_path,
             ])
+            cur = next_path
         else:
-            shutil.copy2(subtitled, output_path)
+            cur = subtitled
+            if not custom_layers:
+                shutil.copy2(subtitled, output_path)
+                return
+
+    # 커스텀 텍스트 레이어 오버레이 (N개 → 투명 PNG 1장)
+    if custom_layers:
+        cl_png = os.path.join(tmp, 'custom_layers.png')
+        generate_custom_layers_png(custom_layers, cl_png)
+        _run_ffmpeg([
+            'ffmpeg', '-i', cur, '-i', cl_png,
+            '-filter_complex', '[0:v][1:v]overlay=0:0',
+            '-c:a', 'copy', '-y', output_path,
+        ])
 
 
 def _apply_irasutoya_overlays(video_path: str, overlay_specs: list,

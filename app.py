@@ -651,18 +651,22 @@ def pipeline_upload_source():
     filename = make_upload_name(base, ext, 'src')
     save_path = os.path.join(config.UPLOAD_FOLDER, filename)
     f.save(save_path)
-    return jsonify({'ok': True, 'filename': filename})
+    import modules.video_processor as vp
+    info = vp.get_video_info(save_path)
+    return jsonify({'ok': True, 'filename': filename, 'duration': info.get('duration', 0)})
 
 
 @app.route('/pipeline/template-preview', methods=['POST'])
 def pipeline_template_preview():
-    data        = request.get_json(silent=True) or {}
-    filename    = data.get('filename', '')
-    tpl_key     = data.get('template', 'namnam')
-    title       = data.get('title', '')
-    positions   = data.get('positions',   {})
-    styles      = data.get('styles',      {})
-    source_text = data.get('source_text', '')
+    data          = request.get_json(silent=True) or {}
+    filename      = data.get('filename', '')
+    tpl_key       = data.get('template', 'namnam')
+    title         = data.get('title', '')
+    positions     = data.get('positions',     {})
+    styles        = data.get('styles',        {})
+    source_text   = data.get('source_text',   '')
+    seek_time     = max(0.0, float(data.get('seek_time', 3)))
+    custom_layers = data.get('custom_layers', [])
 
     if not filename or not safe_filename(filename):
         return jsonify({'ok': False, 'error': '잘못된 파일명'}), 400
@@ -677,7 +681,9 @@ def pipeline_template_preview():
         out_path = os.path.join(config.OUTPUT_FOLDER, out_name)
         generate_template_preview(video_path, out_path, tpl_key, title,
                                   positions=positions, styles=styles,
-                                  source_text=source_text)
+                                  source_text=source_text,
+                                  seek_time=seek_time,
+                                  custom_layers=custom_layers)
         return jsonify({'ok': True, 'preview_url': f'/download/{out_name}'})
     except Exception as e:
         log_error(e)
@@ -737,6 +743,7 @@ def pipeline_run():
     positions          = data.get('positions')    or {}
     styles             = data.get('styles')       or {}
     source_text        = (data.get('source_text') or '').strip()
+    custom_layers      = data.get('custom_layers') or []
     if not script and use_tts:
         return jsonify({'ok': False, 'error': '대본이 없습니다. (TTS 끄면 대본 없어도 됩니다)'}), 400
     if not source_filename:
@@ -803,7 +810,7 @@ def pipeline_run():
                             srt_save_path=srt_path, scenes=[], title=topic, template=template,
                             use_tts=use_tts, overlay_specs=[],
                             positions=positions, styles=styles, source_text=source_text,
-                            use_subtitle=use_subtitle)
+                            use_subtitle=use_subtitle, custom_layers=custom_layers)
             _jobs[job_id].update({'srt': srt_name})
 
             # assemble_stages 내부에서 pct=100, done=True 로 설정함

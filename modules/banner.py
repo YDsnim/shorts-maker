@@ -110,17 +110,42 @@ def generate_source_overlay_png(out_path: str, tpl_key: str = 'silver_crown',
     return out_path
 
 
+def generate_custom_layers_png(layers: list, out_path: str) -> str:
+    """커스텀 텍스트 레이어를 1080×1920 투명 PNG 1장으로 렌더링"""
+    img  = Image.new('RGBA', (VIDEO_W, VIDEO_H), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    for layer in layers:
+        text = (layer.get('text') or '').strip()
+        if not text:
+            continue
+        font      = _load_font(int(layer.get('font_size', 50)))
+        y         = int(layer.get('y', 500))
+        color_hex = (layer.get('color') or '#FFFFFF').lstrip('#')
+        try:
+            r, g, b = int(color_hex[0:2], 16), int(color_hex[2:4], 16), int(color_hex[4:6], 16)
+        except (ValueError, IndexError):
+            r, g, b = 255, 255, 255
+        lw = draw.textlength(text, font=font)
+        x  = (VIDEO_W - lw) / 2
+        draw.text((x, y), text, font=font, fill=(r, g, b, 255))
+    img.save(out_path, 'PNG')
+    return out_path
+
+
 def generate_template_preview(video_path: str, out_path: str,
                               tpl_key: str = 'namnam', title: str = '',
                               positions: dict = None, styles: dict = None,
-                              source_text: str = '') -> str:
+                              source_text: str = '',
+                              seek_time: float = 3,
+                              custom_layers: list = None) -> str:
     """동영상 프레임에 템플릿 오버레이를 합성해 JPEG 미리보기 생성"""
-    positions = positions or {}
+    positions    = positions    or {}
+    custom_layers = custom_layers or []
     frame_tmp = tempfile.mktemp(suffix='_frame.png')
     try:
-        # 3초 지점 프레임 추출 → 실패 시 첫 프레임
+        # seek_time 지점 프레임 추출 → 실패 시 첫 프레임
         r = subprocess.run(
-            ['ffmpeg', '-ss', '3', '-i', video_path, '-frames:v', '1', '-y', frame_tmp],
+            ['ffmpeg', '-ss', str(seek_time), '-i', video_path, '-frames:v', '1', '-y', frame_tmp],
             capture_output=True,
         )
         if r.returncode != 0 or not os.path.exists(frame_tmp) or os.path.getsize(frame_tmp) == 0:
@@ -133,6 +158,26 @@ def generate_template_preview(video_path: str, out_path: str,
                                           styles=styles, source_text=source_text)
         else:
             _compose_namnam_preview(frame_tmp, out_path, title, positions, styles=styles)
+
+        # 커스텀 레이어 합성
+        if custom_layers:
+            result = Image.open(out_path).convert('RGBA')
+            draw   = ImageDraw.Draw(result)
+            for layer in custom_layers:
+                text = (layer.get('text') or '').strip()
+                if not text:
+                    continue
+                font      = _load_font(int(layer.get('font_size', 50)))
+                y         = int(layer.get('y', 500))
+                color_hex = (layer.get('color') or '#FFFFFF').lstrip('#')
+                try:
+                    cr, cg, cb = int(color_hex[0:2], 16), int(color_hex[2:4], 16), int(color_hex[4:6], 16)
+                except (ValueError, IndexError):
+                    cr, cg, cb = 255, 255, 255
+                lw = draw.textlength(text, font=font)
+                x  = (VIDEO_W - lw) / 2
+                draw.text((x, y), text, font=font, fill=(cr, cg, cb, 255))
+            result.convert('RGB').save(out_path, 'JPEG', quality=88)
     finally:
         try:
             os.unlink(frame_tmp)
