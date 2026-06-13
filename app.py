@@ -244,6 +244,7 @@ def _run_job_thread(cmd: list, job_id: str, duration: float,
             _jobs[job_id].update({'done': True, 'finished_at': time.time(), 'error': err or '처리 중 오류 발생'})
 
     except Exception as e:
+        log_error(e)
         if job_id in _jobs:
             _jobs[job_id].update({'done': True, 'finished_at': time.time(), 'error': str(e)})
     finally:
@@ -366,6 +367,7 @@ def preview():
                 seek_time=seek_time,
             )
         except Exception as e:
+            log_error(e)
             return jsonify({'ok': False, 'error': str(e)}), 500
 
     return send_file(preview_path, mimetype='image/jpeg')
@@ -432,6 +434,7 @@ def process():
         return jsonify({'ok': True, 'job_id': job_id})
 
     except Exception as e:
+        log_error(e)
         return jsonify({'ok': False, 'error': str(e)}), 500
 
 
@@ -596,6 +599,7 @@ def transcribe():
             _jobs[job_id].update({'done': True, 'finished_at': time.time(),
                                   'error': 'faster-whisper가 설치되지 않았습니다. pip install faster-whisper'})
         except Exception as e:
+            log_error(e)
             _jobs[job_id].update({'done': True, 'finished_at': time.time(), 'error': str(e)})
 
     threading.Thread(target=_run_transcribe, daemon=True).start()
