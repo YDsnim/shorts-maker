@@ -9,8 +9,8 @@ _BASE       = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FONTS_DIR   = os.path.join(_BASE, 'fonts')
 _GMARKET    = os.path.join(FONTS_DIR, 'GmarketSansBold.ttf')
 _PRETENDARD = os.path.join(FONTS_DIR, 'Pretendard-ExtraBold.otf')
-_MALGUN_B   = r'C:\Windows\Fonts\malgunbd.ttf'   # 맑은 고딕 Bold (시스템 폴백)
-_MALGUN     = r'C:\Windows\Fonts\malgun.ttf'
+_MALGUN_B   = r'C:\Windows\Fonts\malgunbd.ttf' if os.name == 'nt' else ''
+_MALGUN     = r'C:\Windows\Fonts\malgun.ttf'   if os.name == 'nt' else ''
 
 
 def _pick_font() -> tuple:
