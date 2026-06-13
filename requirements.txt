@@ -6,6 +6,4 @@ faster-whisper
 # ── 영상 창작 파이프라인 (auto_pipeline/) ──────────
 anthropic          # Claude API — 대본 자동 생성 (유료, 편당 ~1~2원)
 edge-tts           # Microsoft TTS — 한국어 음성 생성 (무료)
-requests           # HTTP 요청
-beautifulsoup4     # 이라스토야 HTML 파싱
 Pillow             # 상단 배너 이미지 생성

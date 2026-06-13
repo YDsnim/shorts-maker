@@ -1060,9 +1060,6 @@ const pipelineEta         = document.getElementById('pipeline-eta');
 const apiWarning          = document.getElementById('api-warning');
 const uploadScriptBtn     = document.getElementById('upload-script-btn');
 const scriptFileInput     = document.getElementById('script-file-input');
-const irasutoyaCard      = document.getElementById('irasutoya-card');
-const irasutoyaTagsWrap  = document.getElementById('irasutoya-tags-wrap');
-const irasutoyaConfirmBtn = document.getElementById('irasutoya-confirm-btn');
 
 // 단계 인디케이터 요소
 const PSTEPS = {
@@ -1098,112 +1095,6 @@ function stripScriptTags(script) {
   return script.replace(/\([^():]+:\d+(?:\.\d+)?[초s]\)/g, '').replace(/\s{2,}/g, ' ').trim();
 }
 
-// 태그별 선택 상태 {tagIndex: {image_url, title}}
-let irasutoyaSelections = {};
-let parsedTags = [];
-
-async function buildIrasutoyaUI(tags) {
-  irasutoyaSelections = {};
-  irasutoyaTagsWrap.innerHTML = '';
-
-  for (let i = 0; i < tags.length; i++) {
-    const tag   = tags[i];
-    const block = document.createElement('div');
-    block.className = 'ira-tag-block';
-    block.dataset.idx = i;
-    block.innerHTML = `
-      <div class="ira-tag-label">
-        <strong>"${tag.keyword}"</strong>
-        <span class="ira-dur">${tag.duration}초</span>
-        <span>앞 문장: ${tag.anchor || '(없음)'}</span>
-      </div>
-      <div class="ira-loading">🔍 이미지 검색 중...</div>
-      <div class="ira-actions" style="margin-top:8px">
-        <input class="ira-keyword-input" value="${tag.keyword}" placeholder="다른 키워드로 재검색">
-        <button class="btn btn-outline btn-sm ira-research-btn" data-idx="${i}">🔍 재검색</button>
-        <button class="btn btn-outline btn-sm ira-skip-btn" data-idx="${i}">⏭ 건너뛰기</button>
-      </div>`;
-    irasutoyaTagsWrap.appendChild(block);
-
-    // 이미지 검색
-    await searchAndRenderOptions(block, i, tag.keyword);
-  }
-
-  // 재검색 / 건너뛰기 이벤트
-  irasutoyaTagsWrap.addEventListener('click', async e => {
-    const btn = e.target.closest('.ira-research-btn, .ira-skip-btn');
-    if (!btn) return;
-    const idx = parseInt(btn.dataset.idx);
-    const block = irasutoyaTagsWrap.querySelector(`.ira-tag-block[data-idx="${idx}"]`);
-
-    if (btn.classList.contains('ira-skip-btn')) {
-      delete irasutoyaSelections[idx];
-      block.querySelectorAll('.ira-option').forEach(o => o.classList.remove('selected'));
-      block.style.opacity = '0.45';
-      return;
-    }
-
-    // 재검색
-    const keyword = block.querySelector('.ira-keyword-input').value.trim();
-    if (!keyword) return;
-    block.style.opacity = '1';
-    delete irasutoyaSelections[idx];
-    const grid = block.querySelector('.ira-options');
-    if (grid) grid.innerHTML = '<div class="ira-loading">🔍 검색 중...</div>';
-    else {
-      const loading = block.querySelector('.ira-loading');
-      if (loading) loading.textContent = '🔍 검색 중...';
-    }
-    await searchAndRenderOptions(block, idx, keyword);
-  });
-}
-
-async function searchAndRenderOptions(block, idx, keyword) {
-  try {
-    const res  = await fetch('/pipeline/search-irasutoya', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ keyword }),
-    });
-    const data = await res.json();
-
-    // 기존 로딩 문구 제거
-    const loading = block.querySelector('.ira-loading');
-    if (loading) loading.remove();
-
-    let grid = block.querySelector('.ira-options');
-    if (!grid) {
-      grid = document.createElement('div');
-      grid.className = 'ira-options';
-      block.querySelector('.ira-actions').before(grid);
-    }
-    grid.innerHTML = '';
-
-    if (!data.ok || !data.images?.length) {
-      grid.innerHTML = '<p style="font-size:.8rem;color:var(--text-muted);text-align:center">검색 결과 없음</p>';
-      return;
-    }
-
-    data.images.forEach((img, j) => {
-      const opt = document.createElement('div');
-      opt.className = 'ira-option';
-      opt.dataset.idx = idx;
-      opt.dataset.j   = j;
-      opt.innerHTML = `<img src="${img.thumb}" alt="${img.title}" loading="lazy">
-                       <div class="ira-opt-title">${img.title}</div>`;
-      opt.addEventListener('click', () => {
-        grid.querySelectorAll('.ira-option').forEach(o => o.classList.remove('selected'));
-        opt.classList.add('selected');
-        block.style.opacity = '1';
-        irasutoyaSelections[idx] = { image_url: img.full, title: img.title };
-      });
-      grid.appendChild(opt);
-    });
-  } catch (e) {
-    const loading = block.querySelector('.ira-loading');
-    if (loading) loading.textContent = '검색 오류: ' + e.message;
-  }
-}
 
 /* API 키 설정 상태 확인 */
 async function checkPipelineConfig() {
@@ -1271,7 +1162,6 @@ approveScriptBtn.addEventListener('click', async () => {
   if (!sourceFilename) { showToast('메인 소스 영상을 먼저 업로드해주세요.', 'error'); return; }
 
   pipelineTopic = topicInput.value.trim() || '숏츠';
-  parsedTags    = []; // 이라스토야 비활성화 — 태그 파싱 건너뜀
 
   // 바로 실행
   approveScriptBtn.disabled    = true;
@@ -1309,11 +1199,6 @@ approveScriptBtn.addEventListener('click', async () => {
         positions:       getPositions(),
         styles:          getStyles(),
         source_text:     getSourceText(),
-        irasutoya_overlays: parsedTags
-          .map((tag, i) => irasutoyaSelections[i]
-            ? { anchor: tag.anchor, image_url: irasutoyaSelections[i].image_url, duration: tag.duration }
-            : null)
-          .filter(Boolean),
       }),
     });
     const data = await res.json();
@@ -1407,95 +1292,13 @@ function _updatePipelineSteps(pct) {
 /* ====================================================
    새 숏츠 만들기 버튼 — 창작 UI 초기화
    ==================================================== */
-/* 이라스토야 선택 완료 → 파이프라인 실행 */
-irasutoyaConfirmBtn.addEventListener('click', async () => {
-  irasutoyaCard.style.display        = 'none';
-  scriptCard.style.display           = 'none';
-  pipelineProgressCard.style.display = 'block';
-  pipelineResultCard.style.display   = 'none';
-
-  Object.values(PSTEPS).forEach(el => el.classList.remove('active', 'done'));
-  PSTEPS.voice.classList.add('active');
-  pipelineFill.style.width = '0%';
-  pipelineText.textContent = '준비 중...';
-  pipelineEta.textContent  = '진행 중: 0초 경과';
-  pipelineEta.style.display = 'block';
-
-  const script   = scriptTextarea.value.trim();
-  const _start   = Date.now();
-  const _etaT    = setInterval(() => {
-    const sec = Math.floor((Date.now() - _start) / 1000);
-    const m = Math.floor(sec / 60), s = sec % 60;
-    pipelineEta.textContent = m > 0 ? `진행 중: ${m}분 ${s}초 경과` : `진행 중: ${s}초 경과`;
-  }, 1000);
-
-  try {
-    const res  = await fetch('/pipeline/run', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({
-        script:          stripScriptTags(script),
-        topic:           pipelineTopic,
-        template:        document.querySelector('input[name="template"]:checked')?.value || 'namnam',
-        source_filename: sourceFilename,
-        use_tts:         document.getElementById('use-tts-toggle').checked,
-        use_subtitle:    document.getElementById('use-subtitle-toggle').checked,
-        positions:       getPositions(),
-        styles:          getStyles(),
-        source_text:     getSourceText(),
-        irasutoya_overlays: parsedTags
-          .map((tag, i) => irasutoyaSelections[i]
-            ? { anchor: tag.anchor, image_url: irasutoyaSelections[i].image_url, duration: tag.duration }
-            : null)
-          .filter(Boolean),
-      }),
-    });
-    const data = await res.json();
-    if (!data.ok) {
-      clearInterval(_etaT);
-      showToast(data.error || '실패', 'error');
-      pipelineProgressCard.style.display = 'none';
-      irasutoyaCard.style.display        = 'block';
-      return;
-    }
-    subscribeProgress(data.job_id, payload => {
-      if (payload.error) {
-        clearInterval(_etaT);
-        showToast(payload.error, 'error');
-        pipelineProgressCard.style.display = 'none';
-        irasutoyaCard.style.display        = 'block';
-        irasutoyaConfirmBtn.disabled       = false;
-        return;
-      }
-      pipelineFill.style.width = (payload.pct || 0) + '%';
-      if (payload.msg) pipelineText.textContent = payload.msg;
-      if (payload.done) {
-        clearInterval(_etaT);
-        pipelineProgressCard.style.display = 'none';
-        pipelineResultCard.style.display   = 'block';
-        if (payload.result) {
-          pipelineDownloadBtn.href = `/download/${encodeURIComponent(payload.result)}`;
-          pipelineDownloadBtn.download = payload.result;
-        }
-      }
-    });
-  } catch (e) {
-    clearInterval(_etaT);
-    showToast('네트워크 오류: ' + e.message, 'error');
-  }
-});
-
 pipelineNewBtn.addEventListener('click', () => {
   // ── 텍스트 초기화 ──
   topicInput.value             = '';
   scriptTextarea.value         = '';
   pipelineTopic                = '';
-  parsedTags                   = [];
-  irasutoyaSelections          = {};
-  irasutoyaTagsWrap.innerHTML  = '';
 
   // ── 카드 표시 초기화 ──
-  irasutoyaCard.style.display        = 'none';
   scriptCard.style.display           = 'block';
   pipelineResultCard.style.display   = 'none';
   srtDownloadBtn.style.display       = 'none';
