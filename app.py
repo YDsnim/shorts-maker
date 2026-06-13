@@ -627,20 +627,6 @@ def pipeline_check_config():
         return jsonify({'ok': False, 'error': str(e)}), 500
 
 
-@app.route('/pipeline/search-irasutoya', methods=['POST'])
-def pipeline_search_irasutoya():
-    data    = request.get_json(silent=True) or {}
-    keyword = (data.get('keyword') or '').strip()
-    if not keyword:
-        return jsonify({'ok': False, 'error': '키워드 없음'}), 400
-    try:
-        from auto_pipeline.irasutoya import search_images
-        images = search_images(keyword, n=3)
-        return jsonify({'ok': True, 'images': images})
-    except Exception as e:
-        log_error(e)
-        return jsonify({'ok': False, 'error': str(e)}), 500
-
 
 @app.route('/pipeline/upload-source', methods=['POST'])
 def pipeline_upload_source():
@@ -738,8 +724,6 @@ def pipeline_run():
     positions          = data.get('positions')    or {}
     styles             = data.get('styles')       or {}
     source_text        = (data.get('source_text') or '').strip()
-    irasutoya_overlays = data.get('irasutoya_overlays') or []   # [{anchor, image_url, duration}]
-
     if not script and use_tts:
         return jsonify({'ok': False, 'error': '대본이 없습니다. (TTS 끄면 대본 없어도 됩니다)'}), 400
     if not source_filename:
@@ -799,26 +783,6 @@ def pipeline_run():
             _jobs[job_id].update({'pct': 30, 'msg': '🎬 소스 영상 준비 중...'})
             bg_paths = [source_path]
 
-            # ── 이라스토야 이미지 다운로드 ────────────────
-            downloaded_overlays = []
-            if irasutoya_overlays:
-                _jobs[job_id].update({'pct': 35, 'msg': '🎨 이라스토야 이미지 다운로드 중...'})
-                from auto_pipeline.irasutoya import download_image
-                for i, ov in enumerate(irasutoya_overlays):
-                    img_url = ov.get('image_url', '')
-                    if not img_url:
-                        continue
-                    img_path = os.path.join(tmp, f'ira_{i}.png')
-                    try:
-                        download_image(img_url, img_path)
-                        downloaded_overlays.append({
-                            'anchor':   ov.get('anchor', ''),
-                            'path':     img_path,
-                            'duration': float(ov.get('duration', 3)),
-                        })
-                    except Exception:
-                        pass  # 다운로드 실패는 건너뜀
-
             # ── 3~5. 조립 ─────────────────────────────────
             _jobs[job_id].update({'pct': 42, 'msg': '⚙️ 영상 조립 중...'})
             from auto_pipeline.assemble import assemble_stages
@@ -826,7 +790,7 @@ def pipeline_run():
             srt_path = os.path.join(config.OUTPUT_FOLDER, srt_name)
             assemble_stages(voice_path, bg_paths, result_path, duration, _jobs, job_id,
                             srt_save_path=srt_path, scenes=[], title=topic, template=template,
-                            use_tts=use_tts, overlay_specs=downloaded_overlays,
+                            use_tts=use_tts, overlay_specs=[],
                             positions=positions, styles=styles, source_text=source_text,
                             use_subtitle=use_subtitle)
             _jobs[job_id].update({'srt': srt_name})
