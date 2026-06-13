@@ -744,6 +744,8 @@ def pipeline_run():
     styles             = data.get('styles')       or {}
     source_text        = (data.get('source_text') or '').strip()
     custom_layers      = data.get('custom_layers') or []
+    tts_voice          = (data.get('tts_voice') or 'ko-KR-Neural2-C').strip()
+    tts_speed          = max(0.25, min(4.0, float(data.get('tts_speed') or 1.0)))
     if not script and use_tts:
         return jsonify({'ok': False, 'error': '대본이 없습니다. (TTS 끄면 대본 없어도 됩니다)'}), 400
     if not source_filename:
@@ -783,7 +785,7 @@ def pipeline_run():
             if use_tts:
                 # ── 1a. TTS 음성 생성 ─────────────────────
                 _jobs[job_id].update({'pct': 10, 'msg': '🔊 TTS 음성 생성 중...'})
-                generate_voice(script, voice_path, speaker=pc.TTS_VOICE, speed=float(pc.TTS_RATE))
+                generate_voice(script, voice_path, speaker=tts_voice, speed=tts_speed)
             else:
                 # ── 1b. 소스 영상에서 오디오 추출 ──────────
                 _jobs[job_id].update({'pct': 10, 'msg': '🔊 원본 오디오 추출 중...'})

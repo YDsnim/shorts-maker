@@ -226,7 +226,11 @@ def _generate_subtitles(voice_path: str, ass_path: str,
                         positions: dict = None,
                         styles: dict = None) -> list:
     model = _get_whisper_model()
-    segments, _info = model.transcribe(voice_path, language='ko')
+    segments, _info = model.transcribe(
+        voice_path, language='ko',
+        vad_filter=True,
+        vad_parameters={'min_silence_duration_ms': 300},
+    )
     seg_list = list(segments)
 
     blocks = _split_segments(seg_list)

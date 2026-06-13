@@ -14,6 +14,7 @@
 // ── 전역 상태 ────────────────────────────────────────
 let uploadedFilename = null;   // 서버 UUID 파일명 (예: a3f9c1d2.mp4)
 let originalBase     = null;   // 결과 파일명에 쓸 원본 베이스 (예: '여름휴가')
+let _uploadInfo      = {};     // 업로드 완료 후 저장한 video info {width, height, duration, ...}
 let videoDim = { w: 0, h: 0 }; // 실제 영상 픽셀 크기 (크롭 좌표 계산 기준)
 let cropPx   = { x: 0, y: 0, w: 0, h: 0 };  // 크롭 영역 (픽셀 단위)
 let bgMode   = 'none';         // 배경 처리 모드: 'none' | 'blur' | 'solid'
@@ -73,12 +74,11 @@ fileInput.addEventListener('change', () => { if (fileInput.files[0]) uploadFile(
 function uploadFile(file) {
   if (file.size > 500 * 1024 * 1024) { showToast('파일이 500MB를 초과합니다.', 'error'); return; }
 
-  // 새 파일 선택 시 이전 편집 상태 즉시 초기화
-  editCard.style.display    = 'none';
-  actionCard.style.display  = 'none';
+  // 새 파일 선택 시 이전 상태 초기화
+  document.getElementById('mode-select-card').style.display  = 'none';
+  document.getElementById('narration-section').style.display = 'none';
+  document.getElementById('crop-section').style.display      = 'none';
   previewWrap.style.display = 'none';
-  progressSec.style.display = 'none';
-  resultSec.style.display   = 'none';
   cropPx = { x: 0, y: 0, w: 0, h: 0 };
 
   dropZone.innerHTML = `<strong>업로드 중... 0%</strong><p>${file.name}</p>`;
@@ -108,20 +108,28 @@ function uploadFile(file) {
 
     uploadedFilename = data.filename;
     originalBase     = data.original_base || 'video';
+    _uploadInfo      = data.info || {};
+
+    // 내레이션 모드에서도 같은 파일 사용
+    sourceFilename = data.filename;
+    sourceDuration = _uploadInfo.duration || 0;
 
     dropZone.innerHTML = `
       <strong>✅ ${file.name}</strong>
       <p style="color:var(--success)">업로드 완료 · 다시 클릭하면 교체</p>
     `;
 
-    const info = data.info || {};
+    const info = _uploadInfo;
     if (info.width) {
       document.getElementById('video-info').style.display = 'flex';
       document.getElementById('video-info').innerHTML =
         `해상도 <span>${info.width}×${info.height}</span> &nbsp; 길이 <span>${info.duration_str}</span>`;
     }
 
-    initCropUI(data.filename, info);
+    // 업로드 후 모드 선택 카드 표시
+    document.getElementById('mode-select-card').style.display = 'block';
+    document.getElementById('narration-section').style.display = 'none';
+    document.getElementById('crop-section').style.display      = 'none';
     showToast('업로드 완료!', 'success');
   };
 
@@ -603,12 +611,11 @@ async function fetchYoutube() {
   ytBtn.disabled    = true;
   ytBtn.textContent = '⏳ 다운로드 중...';
 
-  // 새 영상 다운로드 시작 시 이전 편집 상태 즉시 초기화
-  editCard.style.display    = 'none';
-  actionCard.style.display  = 'none';
+  // 새 영상 다운로드 시작 시 이전 상태 초기화
+  document.getElementById('mode-select-card').style.display  = 'none';
+  document.getElementById('narration-section').style.display = 'none';
+  document.getElementById('crop-section').style.display      = 'none';
   previewWrap.style.display = 'none';
-  progressSec.style.display = 'none';
-  resultSec.style.display   = 'none';
   cropPx = { x: 0, y: 0, w: 0, h: 0 };
 
   dropZone.innerHTML = `<strong>YouTube 영상 다운로드 중...</strong><p>${url}</p>`;
@@ -625,8 +632,11 @@ async function fetchYoutube() {
 
     uploadedFilename = data.filename;
     originalBase     = data.original_base || 'video';
+    _uploadInfo      = data.info || {};
+    sourceFilename   = data.filename;
+    sourceDuration   = _uploadInfo.duration || 0;
 
-    const info = data.info || {};
+    const info = _uploadInfo;
     if (info.width) {
       document.getElementById('video-info').style.display = 'flex';
       document.getElementById('video-info').innerHTML =
@@ -636,13 +646,11 @@ async function fetchYoutube() {
     dropZone.innerHTML = `
       <strong>✅ ${data.original_base}</strong>
       <p style="color:var(--success)">${info.duration_str ? info.duration_str + ' · ' : ''}${info.width ? info.width + '×' + info.height : ''}</p>
-      <button class="btn" id="go-edit-btn" style="margin-top:12px">✂️ 편집 시작</button>
-      <p style="font-size:.8rem;color:var(--muted);margin-top:6px">다른 영상으로 교체하려면 파일을 업로드하거나 URL을 다시 입력하세요</p>
     `;
-    document.getElementById('go-edit-btn').addEventListener('click', e => {
-      e.stopPropagation();
-      initCropUI(data.filename, info);
-    });
+
+    document.getElementById('mode-select-card').style.display  = 'block';
+    document.getElementById('narration-section').style.display = 'none';
+    document.getElementById('crop-section').style.display      = 'none';
 
     showToast('YouTube 영상 준비 완료!', 'success');
     ytUrl.value = '';
@@ -734,16 +742,39 @@ function showToast(msg, type = '') {
 checkPipelineConfig();
 
 /* ====================================================
+   모드 선택 버튼
+   ==================================================== */
+document.getElementById('mode-btn-narration').addEventListener('click', () => {
+  document.getElementById('mode-select-card').style.display = 'none';
+  document.getElementById('narration-section').style.display = 'block';
+
+  // 슬라이더 최대값 업데이트
+  if (sourceDuration > 0) {
+    seekSlider.max   = Math.floor(sourceDuration);
+    seekSlider.value = Math.min(3, Math.floor(sourceDuration));
+    seekLabel.textContent = parseFloat(seekSlider.value).toFixed(1) + 's';
+  }
+  sourceFilenameLabel.textContent = originalBase || '';
+
+  // 미리보기 자동 생성
+  document.getElementById('source-preview-loading').style.display = 'block';
+  document.getElementById('source-preview-wrap').style.display    = 'none';
+  requestTemplatePreview();
+  document.getElementById('upload-card').scrollIntoView({ behavior: 'smooth' });
+});
+
+document.getElementById('mode-btn-crop').addEventListener('click', () => {
+  document.getElementById('mode-select-card').style.display = 'none';
+  document.getElementById('crop-section').style.display     = 'block';
+  initCropUI(uploadedFilename, _uploadInfo);
+});
+
+/* ====================================================
    메인 소스 영상 업로드 + 템플릿 미리보기
    ==================================================== */
 let sourceFilename = null;
 let sourceDuration = 0;
 
-const sourceDropZone    = document.getElementById('source-drop-zone');
-const sourceFileInput   = document.getElementById('source-file-input');
-const sourceUploadProg  = document.getElementById('source-upload-progress');
-const sourceUploadFill  = document.getElementById('source-upload-fill');
-const sourceUploadText  = document.getElementById('source-upload-text');
 const sourcePreviewWrap = document.getElementById('source-preview-wrap');
 const sourcePreviewImg  = document.getElementById('source-preview-img');
 const sourceFilenameLabel = document.getElementById('source-filename-label');
@@ -862,69 +893,7 @@ function setLayerProp(id, k, v) {
   if (layer) layer[k] = v;
 }
 
-sourceDropZone.addEventListener('click', () => sourceFileInput.click());
-sourceDropZone.addEventListener('dragover', e => {
-  e.preventDefault();
-  sourceDropZone.classList.add('drag-over');
-});
-sourceDropZone.addEventListener('dragleave', () => sourceDropZone.classList.remove('drag-over'));
-sourceDropZone.addEventListener('drop', e => {
-  e.preventDefault();
-  sourceDropZone.classList.remove('drag-over');
-  const f = e.dataTransfer.files[0];
-  if (f) uploadSourceFile(f);
-});
-sourceFileInput.addEventListener('change', () => {
-  if (sourceFileInput.files[0]) uploadSourceFile(sourceFileInput.files[0]);
-  sourceFileInput.value = '';
-});
-
-function uploadSourceFile(file) {
-  const fd = new FormData();
-  fd.append('file', file);
-
-  sourceUploadProg.style.display  = 'block';
-  sourcePreviewWrap.style.display = 'none';
-  sourceUploadFill.style.width    = '0%';
-  sourceUploadText.textContent    = '업로드 중...';
-
-  const xhr = new XMLHttpRequest();
-  xhr.open('POST', '/pipeline/upload-source');
-
-  xhr.upload.onprogress = e => {
-    if (e.lengthComputable) {
-      const pct = Math.round(e.loaded / e.total * 100);
-      sourceUploadFill.style.width = pct + '%';
-      sourceUploadText.textContent = `업로드 중... ${pct}%`;
-    }
-  };
-
-  xhr.onload = async () => {
-    if (xhr.status === 200) {
-      const data = JSON.parse(xhr.responseText);
-      if (data.ok) {
-        sourceFilename = data.filename;
-        sourceDuration = data.duration || 0;
-        if (sourceDuration > 0) {
-          seekSlider.max = Math.floor(sourceDuration);
-          seekSlider.value = Math.min(3, Math.floor(sourceDuration));
-          seekLabel.textContent = parseFloat(seekSlider.value).toFixed(1) + 's';
-        }
-        sourceFilenameLabel.textContent = file.name;
-        sourceUploadText.textContent    = '미리보기 생성 중...';
-        await requestTemplatePreview();
-        sourceUploadProg.style.display  = 'none';
-      } else {
-        sourceUploadText.textContent = '업로드 실패: ' + data.error;
-      }
-    } else {
-      sourceUploadText.textContent = '업로드 실패';
-    }
-  };
-
-  xhr.onerror = () => { sourceUploadText.textContent = '업로드 오류'; };
-  xhr.send(fd);
-}
+// 소스 영상 업로드는 최상단 통합 업로드(#drop-zone)로 통합됨
 
 /* ====================================================
    레이아웃 위치 + 폰트 크기 조정
@@ -1153,14 +1122,21 @@ async function requestTemplatePreview() {
       }),
     });
     const data = await res.json();
+    const loadingEl = document.getElementById('source-preview-loading');
     if (data.ok) {
-      sourcePreviewImg.src            = data.preview_url + '?t=' + Date.now();
-      sourcePreviewWrap.style.display = 'block';
-      sourcePreviewImg.onload = syncHandlePositions;
+      sourcePreviewImg.src = data.preview_url + '?t=' + Date.now();
+      sourcePreviewImg.onload = () => {
+        if (loadingEl) loadingEl.style.display = 'none';
+        sourcePreviewWrap.style.display = 'block';
+        syncHandlePositions();
+      };
     } else {
+      if (loadingEl) loadingEl.style.display = 'none';
       showToast('미리보기 실패: ' + data.error, 'error');
     }
   } catch (e) {
+    const loadingEl = document.getElementById('source-preview-loading');
+    if (loadingEl) loadingEl.style.display = 'none';
     showToast('미리보기 오류: ' + e.message, 'error');
   }
 }
@@ -1173,6 +1149,19 @@ document.getElementById('topic-input').addEventListener('input', () => {
 
 // 갱신 버튼
 sourceRefreshBtn.addEventListener('click', requestTemplatePreview);
+
+// TTS 토글 → 목소리·속도 컨트롤 표시/숨김
+document.getElementById('use-tts-toggle').addEventListener('change', e => {
+  document.getElementById('tts-voice-controls').style.display = e.target.checked ? '' : 'none';
+});
+
+// TTS 속도 슬라이더
+const ttsSpeedSlider = document.getElementById('tts-speed-slider');
+const ttsSpeedLabel  = document.getElementById('tts-speed-label');
+ttsSpeedSlider.addEventListener('input', () => {
+  const v = parseFloat(ttsSpeedSlider.value).toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+  ttsSpeedLabel.textContent = v + 'x';
+});
 
 /* ====================================================
    창작 파이프라인 — 상태
@@ -1334,6 +1323,8 @@ approveScriptBtn.addEventListener('click', async () => {
         source_filename: sourceFilename,
         use_tts:         document.getElementById('use-tts-toggle').checked,
         use_subtitle:    document.getElementById('use-subtitle-toggle').checked,
+        tts_voice:       document.querySelector('input[name="tts-voice"]:checked')?.value || 'ko-KR-Neural2-C',
+        tts_speed:       parseFloat(document.getElementById('tts-speed-slider')?.value || 1.0),
         positions:       getPositions(),
         styles:          getStyles(),
         source_text:     getSourceText(),
@@ -1432,29 +1423,34 @@ function _updatePipelineSteps(pct) {
    새 숏츠 만들기 버튼 — 창작 UI 초기화
    ==================================================== */
 pipelineNewBtn.addEventListener('click', () => {
-  // ── 텍스트 초기화 ──
-  topicInput.value             = '';
-  scriptTextarea.value         = '';
-  pipelineTopic                = '';
+  // ── 전역 상태 초기화 ──
+  uploadedFilename = null;
+  originalBase     = null;
+  _uploadInfo      = {};
+  sourceFilename   = null;
+  sourceDuration   = 0;
 
-  // ── 카드 표시 초기화 ──
-  scriptCard.style.display           = 'block';
-  pipelineResultCard.style.display   = 'none';
-  srtDownloadBtn.style.display       = 'none';
-  srtPreview.style.display           = 'none';
-  srtContent.textContent             = '';
-  approveScriptBtn.disabled          = false;
+  // ── 섹션 표시 초기화 ──
+  document.getElementById('mode-select-card').style.display    = 'none';
+  document.getElementById('narration-section').style.display   = 'none';
+  document.getElementById('crop-section').style.display        = 'none';
 
-  // ── 소스 업로드 초기화 ──
-  sourceFilename = null;
-  sourceDuration = 0;
-  document.getElementById('source-preview-wrap').style.display = 'none';
-  document.getElementById('source-drop-zone').style.display    = 'block';
-  document.getElementById('source-upload-progress').style.display = 'none';
+  // ── 내레이션 카드 초기화 ──
+  topicInput.value                    = '';
+  scriptTextarea.value                = '';
+  pipelineTopic                       = '';
+  scriptCard.style.display            = 'block';
+  pipelineResultCard.style.display    = 'none';
+  srtDownloadBtn.style.display        = 'none';
+  srtPreview.style.display            = 'none';
+  srtContent.textContent              = '';
+  approveScriptBtn.disabled           = false;
+  document.getElementById('source-preview-wrap').style.display    = 'none';
+  document.getElementById('source-preview-loading').style.display = 'none';
 
   // ── 슬라이더 초기화 ──
-  seekSlider.value = 3;
-  seekSlider.max   = 30;
+  seekSlider.value      = 3;
+  seekSlider.max        = 30;
   seekLabel.textContent = '3.0s';
 
   // ── 커스텀 레이어 초기화 ──
@@ -1469,6 +1465,10 @@ pipelineNewBtn.addEventListener('click', () => {
   // ── 토글 초기화 ──
   document.getElementById('use-tts-toggle').checked      = true;
   document.getElementById('use-subtitle-toggle').checked = true;
+  document.getElementById('tts-voice-controls').style.display = '';
+  ttsSpeedSlider.value      = 1.0;
+  ttsSpeedLabel.textContent = '1.0x';
+  document.querySelector('input[name="tts-voice"][value="ko-KR-Neural2-C"]').checked = true;
 
   // ── 템플릿 초기화 (냠냠코기) ──
   const nmRadio = document.querySelector('input[name="template"][value="namnam"]');
@@ -1485,15 +1485,12 @@ pipelineNewBtn.addEventListener('click', () => {
     const sp  = document.getElementById(POS_YSPAN[key]);
     if (sp)  sp.textContent = v;
   });
+  Object.entries({ banner_font_size: 60, title_font_size: 65, subtitle_font_size: 55, source_font_size: 40 })
+    .forEach(([key, v]) => setStyVal(key, v));
 
-  // ── 폰트 크기 기본값 초기화 ──
-  const styDefaults = {
-    banner_font_size: 60, title_font_size: 65,
-    subtitle_font_size: 55, source_font_size: 40,
-  };
-  Object.entries(styDefaults).forEach(([key, v]) => setStyVal(key, v));
-
-  document.getElementById('topic-card').scrollIntoView({ behavior: 'smooth' });
+  // ── 업로드 드롭존 초기화 ──
+  resetDrop();
+  document.getElementById('upload-card').scrollIntoView({ behavior: 'smooth' });
 });
 
 /* 템플릿 라디오 버튼 — 선택된 항목 테두리 강조 */
