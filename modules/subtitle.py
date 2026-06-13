@@ -1,7 +1,7 @@
 # =====================================================
 # modules/subtitle.py
 # 자막 생성 및 영상에 삽입하는 모듈
-# - 텍스트 → SRT 파일 자동 생성
+# - ASS 형식 자막 생성 (핵심어 노란색 강조 지원)
 # - ffmpeg로 자막을 영상에 굽기 (하드코딩)
 # =====================================================
 
@@ -10,24 +10,20 @@ import uuid
 import subprocess
 import tempfile
 
+from modules.template import (
+    FONTS_DIR, FONT_FILE, FONT_NAME,
+    SUBTITLE_FONT_SIZE, SUBTITLE_OUTLINE, SUBTITLE_SHADOW, SUBTITLE_MARGIN_V,
+    COLOR_WHITE_ASS, COLOR_YELLOW_ASS,
+    get_template,
+)
+
 
 def create_srt_file(text: str, video_duration: float) -> str:
-    """
-    텍스트를 SRT 자막 파일로 변환합니다.
-    줄바꿈을 기준으로 자막을 나누고,
-    영상 길이에 맞춰 자막 시간을 균등 배분합니다.
-
-    반환값: 생성된 .srt 파일 경로 (사용 후 삭제 필요)
-    """
-    # 빈 줄을 제거하고 자막 목록 만들기
     lines = [l.strip() for l in text.strip().splitlines() if l.strip()]
-
     if not lines:
-        lines = [text.strip()]  # 줄바꿈이 없으면 전체를 하나의 자막으로
+        lines = [text.strip()]
 
-    # 각 자막이 표시될 시간 계산
     time_per_line = video_duration / len(lines)
-    # 최소 1초, 최대 5초로 제한
     time_per_line = max(1.0, min(time_per_line, 5.0))
 
     srt_path = os.path.join(tempfile.gettempdir(), f'sub_{uuid.uuid4().hex}.srt')
@@ -35,9 +31,7 @@ def create_srt_file(text: str, video_duration: float) -> str:
     with open(srt_path, 'w', encoding='utf-8') as f:
         for i, line in enumerate(lines):
             start_sec = i * time_per_line
-            end_sec = start_sec + time_per_line
-
-            # SRT 형식: HH:MM:SS,mmm
+            end_sec   = start_sec + time_per_line
             f.write(f"{i + 1}\n")
             f.write(f"{_sec_to_srt(start_sec)} --> {_sec_to_srt(end_sec)}\n")
             f.write(f"{line}\n\n")
@@ -45,46 +39,76 @@ def create_srt_file(text: str, video_duration: float) -> str:
     return srt_path
 
 
-def burn_subtitles(video_path: str, srt_path: str, output_path: str) -> None:
-    """
-    SRT 자막을 영상에 직접 굽습니다 (하드코딩 방식).
-    자막이 영상 픽셀에 합쳐지므로 어디서나 잘 보입니다.
+def build_ass_file(blocks: list, ass_path: str, tpl_key: str = 'namnam',
+                   positions: dict = None, styles: dict = None) -> None:
+    tpl      = get_template(tpl_key)
+    pos      = positions or {}
+    sty      = styles    or {}
+    fs       = sty.get('subtitle_font_size', tpl.get('subtitle_font_size', SUBTITLE_FONT_SIZE))
+    margin_v = pos.get('subtitle_margin_v',  tpl.get('subtitle_margin_v',  SUBTITLE_MARGIN_V))
 
-    Windows에서는 경로에 콜론(:)이 있어 ffmpeg가 오해할 수 있으니
-    특별히 처리합니다.
-    """
-    # Windows 경로를 ffmpeg가 읽을 수 있는 형식으로 변환
-    safe_path = srt_path.replace('\\', '/').replace(':', '\\:')
+    header = f"""\
+[Script Info]
+ScriptType: v4.00+
+PlayResX: 1080
+PlayResY: 1920
+ScaledBorderAndShadow: yes
 
-    # 자막 스타일 (숏츠에 최적화된 굵고 큰 글씨, 화면 하단 중앙)
-    style = (
-        "FontName=Arial,"
-        "FontSize=18,"
-        "Bold=1,"
-        "PrimaryColour=&H00FFFFFF,"   # 흰색 글자
-        "OutlineColour=&H00000000,"   # 검정 외곽선
-        "Outline=2,"
-        "Shadow=1,"
-        "Alignment=2,"                # 하단 중앙
-        "MarginV=60"                  # 아래쪽 여백
-    )
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,{FONT_NAME},{fs},{COLOR_WHITE_ASS},&H000000FF,&H00000000,&H00000000,1,0,0,0,100,100,0,0,1,{SUBTITLE_OUTLINE},{SUBTITLE_SHADOW},2,20,20,{margin_v},1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+
+    with open(ass_path, 'w', encoding='utf-8') as f:
+        f.write(header)
+        for block in blocks:
+            start = _sec_to_ass(block['start'])
+            end   = _sec_to_ass(block['end'])
+            text  = block['text']
+            hw    = block.get('highlight')
+
+            if hw and hw in text:
+                text = text.replace(hw, f'{{\\c{COLOR_YELLOW_ASS}}}{hw}{{\\c{COLOR_WHITE_ASS}}}', 1)
+
+            text = text.replace('\n', r'\N')
+            f.write(f'Dialogue: 0,{start},{end},Default,,0,0,0,,{text}\n')
+
+
+def burn_subtitles(video_path: str, ass_path: str, output_path: str) -> None:
+    safe_ass   = ass_path.replace('\\', '/').replace(':', '\\:')
+    safe_fonts = FONTS_DIR.replace('\\', '/').replace(':', '\\:')
+
+    if os.path.exists(FONT_FILE):
+        vf = f"ass='{safe_ass}':fontsdir='{safe_fonts}'"
+    else:
+        vf = f"ass='{safe_ass}'"
 
     cmd = [
         'ffmpeg', '-i', video_path,
-        '-vf', f"subtitles='{safe_path}':force_style='{style}'",
+        '-vf', vf,
         '-c:a', 'copy',
-        '-y', output_path
+        '-y', output_path,
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8')
+    result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
     if result.returncode != 0:
         error_lines = result.stderr.strip().splitlines()[-10:]
         raise RuntimeError('\n'.join(error_lines))
 
 
 def _sec_to_srt(seconds: float) -> str:
-    """초를 SRT 타임코드 형식(HH:MM:SS,mmm)으로 변환합니다."""
-    h = int(seconds // 3600)
-    m = int((seconds % 3600) // 60)
-    s = int(seconds % 60)
+    h  = int(seconds // 3600)
+    m  = int((seconds % 3600) // 60)
+    s  = int(seconds % 60)
     ms = int((seconds % 1) * 1000)
     return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+
+def _sec_to_ass(seconds: float) -> str:
+    h  = int(seconds // 3600)
+    m  = int((seconds % 3600) // 60)
+    s  = int(seconds % 60)
+    cs = int((seconds % 1) * 100)
+    return f"{h}:{m:02d}:{s:02d}.{cs:02d}"

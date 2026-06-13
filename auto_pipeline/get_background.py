@@ -108,3 +108,107 @@ def download_best_video(videos: list, output_path: str,
             f.write(chunk)
 
     return output_path
+
+
+def download_scene_clips(scenes: list, api_key: str, tmp_dir: str,
+                         min_duration: float = 8.0) -> list:
+    """
+    각 장면(scene)에 맞는 배경 영상을 개별 다운로드합니다.
+
+    scenes:  [{'text': '...', 'keywords': ['word1'], 'highlight_words': [...]}, ...]
+    반환:    ['tmp/scene_0.mp4', 'tmp/scene_1.mp4', ...]
+    """
+    paths = []
+    prev_keywords = None
+
+    for i, scene in enumerate(scenes):
+        keywords = scene.get('keywords', ['background'])
+        out_path = f'{tmp_dir}\\scene_{i}.mp4'
+
+        try:
+            videos = search_videos(keywords, api_key)
+            # 이전 장면과 같은 키워드면 결과 리스트에서 다른 영상 선택
+            if keywords == prev_keywords and videos:
+                video_files = sorted(
+                    videos[min(1, len(videos) - 1)].get('video_files', []),
+                    key=lambda x: x.get('width', 0) * x.get('height', 0),
+                    reverse=True,
+                )
+                if video_files:
+                    url = video_files[0]['link']
+                    res = requests.get(url, stream=True, timeout=120)
+                    res.raise_for_status()
+                    with open(out_path, 'wb') as f:
+                        for chunk in res.iter_content(chunk_size=65536):
+                            f.write(chunk)
+                    paths.append(out_path)
+                    prev_keywords = keywords
+                    continue
+
+            download_best_video(videos, out_path, min_duration=min_duration)
+            paths.append(out_path)
+        except Exception as e:
+            print(f'[WARN] scene {i} 배경 다운로드 실패 ({keywords}): {e}')
+            # 폴백: 'background' 키워드로 재시도
+            try:
+                fallback = search_videos(['background', 'nature'], api_key)
+                download_best_video(fallback, out_path, min_duration=min_duration)
+                paths.append(out_path)
+            except Exception as e2:
+                print(f'[WARN] scene {i} 폴백도 실패: {e2}')
+                if paths:
+                    paths.append(paths[-1])  # 이전 클립 재사용
+
+        prev_keywords = keywords
+
+    if not paths:
+        raise RuntimeError('모든 장면의 배경 영상 다운로드에 실패했습니다.')
+
+    return paths
+
+
+def download_multiple_videos(videos: list, tmp_dir: str,
+                              n: int = 3,
+                              min_duration: float = 10.0) -> list:
+    """
+    검색된 목록에서 최대 n개의 서로 다른 영상을 다운로드합니다.
+
+    반환: 다운로드된 파일 경로 리스트 (1개 이상 보장)
+    """
+    if not videos:
+        raise RuntimeError("다운로드할 배경 영상이 없습니다. 다른 키워드를 시도해보세요.")
+
+    candidates = [v for v in videos if v.get('duration', 0) >= min_duration]
+    if not candidates:
+        candidates = videos
+
+    pool = candidates[:max(n * 2, 6)]
+    random.shuffle(pool)
+    selected = pool[:n]
+
+    paths = []
+    for i, video in enumerate(selected):
+        video_files = sorted(
+            video.get('video_files', []),
+            key=lambda x: x.get('width', 0) * x.get('height', 0),
+            reverse=True,
+        )
+        if not video_files:
+            continue
+
+        url = video_files[0]['link']
+        out = f'{tmp_dir}\\bg_{i}.mp4'
+
+        res = requests.get(url, stream=True, timeout=120)
+        res.raise_for_status()
+
+        with open(out, 'wb') as f:
+            for chunk in res.iter_content(chunk_size=65536):
+                f.write(chunk)
+
+        paths.append(out)
+
+    if not paths:
+        raise RuntimeError("배경 영상 다운로드에 실패했습니다.")
+
+    return paths

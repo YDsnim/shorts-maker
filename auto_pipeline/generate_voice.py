@@ -1,47 +1,69 @@
 # =====================================================
 # auto_pipeline/generate_voice.py
-# edge-tts로 한국어 TTS 음성 파일을 생성합니다.
+# Google Cloud TTS (Neural2)로 한국어 음성 파일을 생성합니다.
 #
-# edge-tts는 Microsoft Edge TTS 서버를 사용하며 완전 무료입니다.
-# gTTS보다 훨씬 자연스러운 한국어 발음을 제공합니다.
+# 인증: GOOGLE_APPLICATION_CREDENTIALS 환경변수에 JSON 파일 경로 지정
+# 무료 한도: Neural2 월 100만자
 #
-# 설치: pip install edge-tts
-# 목소리 목록 확인: python -m edge_tts --list-voices | grep ko-KR
+# 목소리 목록 (숏츠 추천):
+#   ko-KR-Neural2-C - 여성, 자연스럽고 또렷함  ← 기본값
+#   ko-KR-Neural2-A - 여성, 밝고 친근함
+#   ko-KR-Neural2-B - 남성, 안정적
+#   ko-KR-Neural2-D - 남성, 젊고 활기참
 # =====================================================
 
-import asyncio
 import json
 import subprocess
-import edge_tts
-
-
-async def _tts_async(text: str, output_path: str, voice: str, rate: str) -> None:
-    """edge-tts 비동기 실행 내부 함수 (asyncio.run()으로 호출)"""
-    communicate = edge_tts.Communicate(text, voice, rate=rate)
-    await communicate.save(output_path)
+from google.cloud import texttospeech
+from google.oauth2 import service_account
 
 
 def generate_voice(text: str, output_path: str,
-                   voice: str = 'ko-KR-SunHiNeural',
-                   rate: str = '+0%') -> None:
+                   speaker: str = 'ko-KR-Neural2-C',
+                   speed: float = 1.0,
+                   pitch: float = 0.0) -> None:
     """
-    텍스트를 음성으로 변환해 mp3 파일로 저장합니다.
+    Google Cloud TTS Neural2로 텍스트를 음성 파일로 저장합니다.
 
     text:        대본 텍스트
     output_path: 저장할 mp3 파일 경로
-    voice:       edge-tts 목소리 ID
-    rate:        말하기 속도 ('+0%' = 기본, '+20%' = 빠름, '-10%' = 느림)
+    speaker:     목소리 ID (기본: ko-KR-Neural2-C)
+    speed:       말하기 속도 (0.25~4.0, 1.0=기본)
+    pitch:       음높이 semitone (-20.0~20.0, 0.0=기본)
     """
-    try:
-        asyncio.run(_tts_async(text, output_path, voice, rate))
-    except RuntimeError:
-        # 이미 이벤트 루프가 실행 중인 환경 (Jupyter 등)에서의 처리
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            loop.run_until_complete(_tts_async(text, output_path, voice, rate))
-        finally:
-            loop.close()
+    import os
+    credentials_path = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS', '')
+
+    if credentials_path:
+        credentials = service_account.Credentials.from_service_account_file(
+            credentials_path,
+            scopes=['https://www.googleapis.com/auth/cloud-platform'],
+        )
+        client = texttospeech.TextToSpeechClient(credentials=credentials)
+    else:
+        client = texttospeech.TextToSpeechClient()
+
+    synthesis_input = texttospeech.SynthesisInput(text=text)
+
+    voice = texttospeech.VoiceSelectionParams(
+        language_code='ko-KR',
+        name=speaker,
+    )
+
+    audio_config = texttospeech.AudioConfig(
+        audio_encoding=texttospeech.AudioEncoding.MP3,
+        speaking_rate=speed,
+        pitch=pitch,
+    )
+
+    response = client.synthesize_speech(
+        input=synthesis_input,
+        voice=voice,
+        audio_config=audio_config,
+    )
+
+    with open(output_path, 'wb') as f:
+        f.write(response.audio_content)
 
 
 def get_audio_duration(audio_path: str) -> float:

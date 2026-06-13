@@ -13,13 +13,29 @@
 # =====================================================
 
 import json
+import logging
 import os
 import re
 import subprocess
 import threading
 import time
+import traceback
 import uuid
 from datetime import datetime
+
+from dotenv import load_dotenv
+load_dotenv()
+
+logging.basicConfig(
+    filename='error.log',
+    level=logging.ERROR,
+    format='%(asctime)s\n%(message)s\n' + '-' * 60,
+    encoding='utf-8',
+)
+
+def log_error(e: Exception) -> None:
+    logging.error(traceback.format_exc())
+    print(traceback.format_exc())
 
 from flask import (Flask, render_template, request, jsonify,
                    send_file, Response, stream_with_context)
@@ -606,12 +622,66 @@ def pipeline_check_config():
     """
     try:
         import auto_pipeline.config as pc
-        return jsonify({
-            'ok': True,
-            'claude_key_set':  bool(pc.CLAUDE_API_KEY),
-            'pexels_key_set':  bool(pc.PEXELS_API_KEY),
-        })
+        return jsonify({'ok': True})
     except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/pipeline/search-irasutoya', methods=['POST'])
+def pipeline_search_irasutoya():
+    data    = request.get_json(silent=True) or {}
+    keyword = (data.get('keyword') or '').strip()
+    if not keyword:
+        return jsonify({'ok': False, 'error': '키워드 없음'}), 400
+    try:
+        from auto_pipeline.irasutoya import search_images
+        images = search_images(keyword, n=3)
+        return jsonify({'ok': True, 'images': images})
+    except Exception as e:
+        log_error(e)
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/pipeline/upload-source', methods=['POST'])
+def pipeline_upload_source():
+    f = request.files.get('file')
+    if not f or not f.filename:
+        return jsonify({'ok': False, 'error': '파일 없음'}), 400
+    ext      = f.filename.rsplit('.', 1)[-1].lower() if '.' in f.filename else 'mp4'
+    base     = sanitize_base(f.filename)
+    filename = make_upload_name(base, ext, 'src')
+    save_path = os.path.join(config.UPLOAD_FOLDER, filename)
+    f.save(save_path)
+    return jsonify({'ok': True, 'filename': filename})
+
+
+@app.route('/pipeline/template-preview', methods=['POST'])
+def pipeline_template_preview():
+    data        = request.get_json(silent=True) or {}
+    filename    = data.get('filename', '')
+    tpl_key     = data.get('template', 'namnam')
+    title       = data.get('title', '')
+    positions   = data.get('positions',   {})
+    styles      = data.get('styles',      {})
+    source_text = data.get('source_text', '')
+
+    if not filename or not safe_filename(filename):
+        return jsonify({'ok': False, 'error': '잘못된 파일명'}), 400
+
+    video_path = os.path.join(config.UPLOAD_FOLDER, filename)
+    if not os.path.exists(video_path):
+        return jsonify({'ok': False, 'error': '파일 없음'}), 404
+
+    try:
+        from modules.banner import generate_template_preview
+        out_name = f'tpl_preview_{uuid.uuid4().hex[:8]}.jpg'
+        out_path = os.path.join(config.OUTPUT_FOLDER, out_name)
+        generate_template_preview(video_path, out_path, tpl_key, title,
+                                  positions=positions, styles=styles,
+                                  source_text=source_text)
+        return jsonify({'ok': True, 'preview_url': f'/download/{out_name}'})
+    except Exception as e:
+        log_error(e)
         return jsonify({'ok': False, 'error': str(e)}), 500
 
 
@@ -640,12 +710,15 @@ def pipeline_generate_script():
 
         result = generate_script(topic, pc.CLAUDE_API_KEY, pc.CLAUDE_MODEL)
         return jsonify({
-            'ok':      True,
-            'script':  result.get('script', ''),
+            'ok':       True,
+            'titles':   result.get('titles', []),
+            'script':   result.get('script', ''),
             'keywords': result.get('keywords', []),
+            'scenes':   result.get('scenes', []),
         })
 
     except Exception as e:
+        log_error(e)
         return jsonify({'ok': False, 'error': str(e)}), 500
 
 
@@ -655,13 +728,28 @@ def pipeline_run():
     대본 승인 후 전 과정(음성·배경·자막·조립)을 백그라운드로 실행한다.
     완료까지 2~5분 소요. SSE /progress/<job_id> 로 진행률을 받는다.
     """
-    data     = request.get_json(force=True)
-    script   = (data.get('script') or '').strip()
-    keywords = data.get('keywords') or ['background', 'nature', 'abstract']
-    topic    = (data.get('topic') or 'shorts').strip()
+    data               = request.get_json(force=True)
+    script             = (data.get('script') or '').strip()
+    topic              = (data.get('topic') or 'shorts').strip()
+    template           = (data.get('template') or 'namnam').strip()
+    source_filename    = (data.get('source_filename') or '').strip()
+    use_tts            = bool(data.get('use_tts', True))
+    use_subtitle       = bool(data.get('use_subtitle', True))
+    positions          = data.get('positions')    or {}
+    styles             = data.get('styles')       or {}
+    source_text        = (data.get('source_text') or '').strip()
+    irasutoya_overlays = data.get('irasutoya_overlays') or []   # [{anchor, image_url, duration}]
 
-    if not script:
-        return jsonify({'ok': False, 'error': '대본이 없습니다.'}), 400
+    if not script and use_tts:
+        return jsonify({'ok': False, 'error': '대본이 없습니다. (TTS 끄면 대본 없어도 됩니다)'}), 400
+    if not source_filename:
+        return jsonify({'ok': False, 'error': '메인 소스 영상을 업로드해주세요.'}), 400
+    if not safe_filename(source_filename):
+        return jsonify({'ok': False, 'error': '잘못된 파일명입니다.'}), 400
+
+    source_path = os.path.join(config.UPLOAD_FOLDER, source_filename)
+    if not os.path.exists(source_path):
+        return jsonify({'ok': False, 'error': '소스 영상 파일을 찾을 수 없습니다.'}), 400
 
     try:
         import auto_pipeline.config as pc
@@ -686,48 +774,68 @@ def pipeline_run():
 
         tmp        = tempfile.mkdtemp()
         voice_path = os.path.join(tmp, 'voice.mp3')
-        bg_path    = os.path.join(tmp, 'background.mp4')
 
         try:
-            # ── 1. TTS 음성 생성 ─────────────────────────
-            _jobs[job_id].update({'pct': 5, 'msg': '🔊 음성 생성 중...'})
             from auto_pipeline.generate_voice import generate_voice, get_audio_duration
-            generate_voice(script, voice_path, voice=pc.TTS_VOICE, rate=pc.TTS_RATE)
+
+            if use_tts:
+                # ── 1a. TTS 음성 생성 ─────────────────────
+                _jobs[job_id].update({'pct': 10, 'msg': '🔊 TTS 음성 생성 중...'})
+                generate_voice(script, voice_path, speaker=pc.TTS_VOICE, speed=float(pc.TTS_RATE))
+            else:
+                # ── 1b. 소스 영상에서 오디오 추출 ──────────
+                _jobs[job_id].update({'pct': 10, 'msg': '🔊 원본 오디오 추출 중...'})
+                subprocess.run([
+                    'ffmpeg', '-i', source_path, '-vn',
+                    '-acodec', 'libmp3lame', '-q:a', '2',
+                    '-y', voice_path,
+                ], check=True, capture_output=True)
 
             duration = get_audio_duration(voice_path)
             if duration <= 0:
-                raise RuntimeError("음성 파일 생성에 실패했습니다.")
+                raise RuntimeError("오디오 추출에 실패했습니다.")
 
-            # ── 2. Pexels 배경 영상 수집 ─────────────────
-            _jobs[job_id].update({'pct': 20, 'msg': '🎥 배경 영상 수집 중...'})
+            # ── 2. 소스 영상 → 배경으로 사용 ─────────────
+            _jobs[job_id].update({'pct': 30, 'msg': '🎬 소스 영상 준비 중...'})
+            bg_paths = [source_path]
 
-            if not pc.PEXELS_API_KEY:
-                raise RuntimeError(
-                    'PEXELS_API_KEY가 설정되지 않았습니다.\n'
-                    'https://www.pexels.com/api 에서 무료 발급 후\n'
-                    'export PEXELS_API_KEY=... 로 설정하세요.'
-                )
+            # ── 이라스토야 이미지 다운로드 ────────────────
+            downloaded_overlays = []
+            if irasutoya_overlays:
+                _jobs[job_id].update({'pct': 35, 'msg': '🎨 이라스토야 이미지 다운로드 중...'})
+                from auto_pipeline.irasutoya import download_image
+                for i, ov in enumerate(irasutoya_overlays):
+                    img_url = ov.get('image_url', '')
+                    if not img_url:
+                        continue
+                    img_path = os.path.join(tmp, f'ira_{i}.png')
+                    try:
+                        download_image(img_url, img_path)
+                        downloaded_overlays.append({
+                            'anchor':   ov.get('anchor', ''),
+                            'path':     img_path,
+                            'duration': float(ov.get('duration', 3)),
+                        })
+                    except Exception:
+                        pass  # 다운로드 실패는 건너뜀
 
-            from auto_pipeline.get_background import search_videos, download_best_video
-            videos = search_videos(keywords, pc.PEXELS_API_KEY)
-            if not videos:
-                raise RuntimeError(
-                    f"Pexels에서 '{' '.join(keywords)}' 영상을 찾지 못했습니다.\n"
-                    "대본 재생성 후 다른 주제를 시도해보세요."
-                )
-
-            _jobs[job_id].update({'pct': 30, 'msg': '🎥 배경 영상 다운로드 중...'})
-            download_best_video(videos, bg_path, min_duration=duration)
-
-            # ── 3~5. 트리밍 + 음성 합치기 + Whisper + 자막 소각 ──
-            _jobs[job_id].update({'pct': 40, 'msg': '⚙️ 영상 조립 중...'})
+            # ── 3~5. 조립 ─────────────────────────────────
+            _jobs[job_id].update({'pct': 42, 'msg': '⚙️ 영상 조립 중...'})
             from auto_pipeline.assemble import assemble_stages
-            assemble_stages(voice_path, bg_path, result_path, duration, _jobs, job_id)
+            srt_name = result_name.replace('.mp4', '.srt')
+            srt_path = os.path.join(config.OUTPUT_FOLDER, srt_name)
+            assemble_stages(voice_path, bg_paths, result_path, duration, _jobs, job_id,
+                            srt_save_path=srt_path, scenes=[], title=topic, template=template,
+                            use_tts=use_tts, overlay_specs=downloaded_overlays,
+                            positions=positions, styles=styles, source_text=source_text,
+                            use_subtitle=use_subtitle)
+            _jobs[job_id].update({'srt': srt_name})
 
             # assemble_stages 내부에서 pct=100, done=True 로 설정함
             _jobs[job_id].update({'result': result_name})
 
         except Exception as e:
+            log_error(e)
             _jobs[job_id].update({'done': True, 'error': str(e)})
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
@@ -737,10 +845,13 @@ def pipeline_run():
 
 
 def _make_pipeline_name(base: str) -> str:
-    """숏츠_{주제}_{N}.mp4 형식, output/ 에 이미 있으면 N을 올린다."""
+    """주제앞8자_날짜_N.mp4 형식, output/ 에 이미 있으면 N을 올린다."""
+    from datetime import date
+    today  = date.today().strftime('%Y%m%d')
+    short  = base[:8] if base else 'shorts'
     n = 1
     while True:
-        name = f'숏츠_{base}_{n}.mp4'
+        name = f'{short}_{today}_{n:02d}.mp4'
         if not os.path.exists(os.path.join(config.OUTPUT_FOLDER, name)):
             return name
         n += 1

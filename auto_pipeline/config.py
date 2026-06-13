@@ -23,12 +23,11 @@ os.makedirs(TEMP_DIR, exist_ok=True)
 # 터미널에서: export CLAUDE_API_KEY=sk-ant-...
 # 또는 .env 파일에 넣고 dotenv 사용 (pip install python-dotenv)
 CLAUDE_API_KEY  = _base.CLAUDE_API_KEY                         # 대본 생성 (유료, 편당 ~1~2원)
-PEXELS_API_KEY  = os.environ.get('PEXELS_API_KEY', '')         # 배경 영상 (무료)
 
-# ── TTS (edge-tts, 무료) ──────────────────────────────
-# 다른 목소리 목록: edge-tts --list | grep ko-KR
-TTS_VOICE = 'ko-KR-SunHiNeural'   # 한국어 여성, 자연스러운 발음
-TTS_RATE  = '+0%'                  # 말하기 속도 (-50% ~ +100%)
+# ── TTS (Google Cloud Neural2) ───────────────────────
+# 목소리: ko-KR-Neural2-C(여/또렷), A(여/밝음), B(남/안정), D(남/활기)
+TTS_VOICE = os.environ.get('GOOGLE_TTS_SPEAKER', 'ko-KR-Neural2-C')
+TTS_RATE  = float(os.environ.get('GOOGLE_TTS_SPEED', '1.0'))  # 0.25~4.0
 
 # ── 영상 해상도 ──────────────────────────────────────
 TARGET_WIDTH  = _base.SHORTS_WIDTH    # 1080
@@ -36,4 +35,4 @@ TARGET_HEIGHT = _base.SHORTS_HEIGHT   # 1920
 
 # ── Claude 모델 ──────────────────────────────────────
 # haiku: 가장 저렴하고 빠름 (대본 생성에 충분)
-CLAUDE_MODEL = 'claude-haiku-4-5-20251001'
+CLAUDE_MODEL = 'claude-sonnet-4-6'

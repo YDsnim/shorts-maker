@@ -729,40 +729,340 @@ function showToast(msg, type = '') {
 }
 
 /* ====================================================
-   앱 모드 탭 전환 (편집 ↔ 창작)
+   페이지 로드 시 파이프라인 설정 상태 확인
    ==================================================== */
-document.querySelectorAll('.app-mode-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const mode = btn.dataset.app;
-    document.querySelectorAll('.app-mode-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    document.getElementById('edit-mode').style.display   = mode === 'edit'   ? 'block' : 'none';
-    document.getElementById('create-mode').style.display = mode === 'create' ? 'block' : 'none';
-    // 창작 모드 진입 시 API 키 설정 상태 확인
-    if (mode === 'create') checkPipelineConfig();
+checkPipelineConfig();
+
+/* ====================================================
+   메인 소스 영상 업로드 + 템플릿 미리보기
+   ==================================================== */
+let sourceFilename = null;
+
+const sourceDropZone    = document.getElementById('source-drop-zone');
+const sourceFileInput   = document.getElementById('source-file-input');
+const sourceUploadProg  = document.getElementById('source-upload-progress');
+const sourceUploadFill  = document.getElementById('source-upload-fill');
+const sourceUploadText  = document.getElementById('source-upload-text');
+const sourcePreviewWrap = document.getElementById('source-preview-wrap');
+const sourcePreviewImg  = document.getElementById('source-preview-img');
+const sourceFilenameLabel = document.getElementById('source-filename-label');
+const sourceRefreshBtn  = document.getElementById('source-refresh-btn');
+
+sourceDropZone.addEventListener('click', () => sourceFileInput.click());
+sourceDropZone.addEventListener('dragover', e => {
+  e.preventDefault();
+  sourceDropZone.classList.add('drag-over');
+});
+sourceDropZone.addEventListener('dragleave', () => sourceDropZone.classList.remove('drag-over'));
+sourceDropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  sourceDropZone.classList.remove('drag-over');
+  const f = e.dataTransfer.files[0];
+  if (f) uploadSourceFile(f);
+});
+sourceFileInput.addEventListener('change', () => {
+  if (sourceFileInput.files[0]) uploadSourceFile(sourceFileInput.files[0]);
+  sourceFileInput.value = '';
+});
+
+function uploadSourceFile(file) {
+  const fd = new FormData();
+  fd.append('file', file);
+
+  sourceUploadProg.style.display  = 'block';
+  sourcePreviewWrap.style.display = 'none';
+  sourceUploadFill.style.width    = '0%';
+  sourceUploadText.textContent    = '업로드 중...';
+
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', '/pipeline/upload-source');
+
+  xhr.upload.onprogress = e => {
+    if (e.lengthComputable) {
+      const pct = Math.round(e.loaded / e.total * 100);
+      sourceUploadFill.style.width = pct + '%';
+      sourceUploadText.textContent = `업로드 중... ${pct}%`;
+    }
+  };
+
+  xhr.onload = async () => {
+    if (xhr.status === 200) {
+      const data = JSON.parse(xhr.responseText);
+      if (data.ok) {
+        sourceFilename = data.filename;
+        sourceFilenameLabel.textContent = file.name;
+        sourceUploadText.textContent    = '미리보기 생성 중...';
+        await requestTemplatePreview();
+        sourceUploadProg.style.display  = 'none';
+      } else {
+        sourceUploadText.textContent = '업로드 실패: ' + data.error;
+      }
+    } else {
+      sourceUploadText.textContent = '업로드 실패';
+    }
+  };
+
+  xhr.onerror = () => { sourceUploadText.textContent = '업로드 오류'; };
+  xhr.send(fd);
+}
+
+/* ====================================================
+   레이아웃 위치 + 폰트 크기 조정
+   ==================================================== */
+
+// data-key → hidden input ID
+const POS_INPUT = {
+  banner_h:       'pos-banner-h',
+  video_y_namnam: 'pos-video-y-namnam',
+  title_y:        'pos-title-y',
+  video_y_silver: 'pos-video-y-silver',
+  subtitle_y:     'pos-subtitle-y',
+  source_y:       'pos-source-y',
+};
+// data-key → y값 표시 span ID
+const POS_YSPAN = {
+  banner_h:       'dhv-banner-h',
+  video_y_namnam: 'dhv-video-y-nm',
+  title_y:        'dhv-title-y',
+  video_y_silver: 'dhv-video-y-sc',
+  subtitle_y:     'dhv-subtitle-y',
+  source_y:       'dhv-source-y',
+};
+// data-sty → hidden input ID / 표시 span ID
+const STY_INPUT = {
+  banner_font_size:   'sty-banner-size',
+  title_font_size:    'sty-title-size',
+  subtitle_font_size: 'sty-subtitle-size',
+  source_font_size:   'sty-source-size',
+};
+const STY_SPAN = {
+  banner_font_size:   'szn-banner',
+  title_font_size:    'szn-title',
+  subtitle_font_size: 'szn-subtitle',
+  source_font_size:   'szn-source',
+};
+
+function posVal(key) {
+  return parseInt(document.getElementById(POS_INPUT[key])?.value) || 0;
+}
+function setPosVal(key, v) {
+  const handle = document.querySelector(`.drag-handle[data-key="${key}"]`);
+  const min = parseInt(handle?.dataset.min) || 0;
+  const max = parseInt(handle?.dataset.max) || 1920;
+  v = Math.round(Math.max(min, Math.min(max, v)) / 10) * 10;
+  const inp = document.getElementById(POS_INPUT[key]);
+  if (inp) inp.value = v;
+  const sp  = document.getElementById(POS_YSPAN[key]);
+  if (sp)  sp.textContent = v;
+  return v;
+}
+
+function styVal(key) {
+  return parseInt(document.getElementById(STY_INPUT[key])?.value) || 0;
+}
+function setStyVal(key, v) {
+  const min = 12, max = 120;
+  v = Math.max(min, Math.min(max, v));
+  const inp = document.getElementById(STY_INPUT[key]);
+  if (inp) inp.value = v;
+  const sp  = document.getElementById(STY_SPAN[key]);
+  if (sp)  sp.textContent = v;
+  return v;
+}
+
+function syncHandlePositions() {
+  document.querySelectorAll('.drag-handle').forEach(h => {
+    const v = posVal(h.dataset.key);
+    h.style.top = (v / 1920 * 100) + '%';
+  });
+}
+
+// ── 드래그 ──────────────────────────────────────────
+let _drag = null;
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.drag-handle').forEach(handle => {
+    const onStart = (e) => {
+      // sz-btn 클릭은 드래그 무시
+      if (e.target.classList.contains('sz-btn')) return;
+      e.preventDefault();
+      const wrap = document.getElementById('preview-drag-wrap');
+      _drag = {
+        handle,
+        key:    handle.dataset.key,
+        rect:   wrap.getBoundingClientRect(),
+        startY: e.touches ? e.touches[0].clientY : e.clientY,
+        startV: posVal(handle.dataset.key),
+      };
+    };
+    handle.addEventListener('mousedown',  onStart);
+    handle.addEventListener('touchstart', onStart, { passive: false });
+  });
+
+  // 폰트 크기 +/- 버튼
+  document.querySelectorAll('.sz-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const sty   = btn.dataset.sty;
+      const delta = parseInt(btn.dataset.delta);
+      setStyVal(sty, styVal(sty) + delta);
+      if (sourceFilename) debouncedPreview();
+    });
   });
 });
+
+document.addEventListener('mousemove', (e) => {
+  if (!_drag) return;
+  const dy = e.clientY - _drag.startY;
+  const dv = (dy / _drag.rect.height) * 1920;
+  const v  = setPosVal(_drag.key, _drag.startV + dv);
+  _drag.handle.style.top = (v / 1920 * 100) + '%';
+});
+document.addEventListener('touchmove', (e) => {
+  if (!_drag) return;
+  e.preventDefault();
+  const dy = e.touches[0].clientY - _drag.startY;
+  const dv = (dy / _drag.rect.height) * 1920;
+  const v  = setPosVal(_drag.key, _drag.startV + dv);
+  _drag.handle.style.top = (v / 1920 * 100) + '%';
+}, { passive: false });
+
+document.addEventListener('mouseup',  () => { if (_drag) { _drag = null; debouncedPreview(); } });
+document.addEventListener('touchend', () => { if (_drag) { _drag = null; debouncedPreview(); } });
+
+// ── 값 수집 ─────────────────────────────────────────
+function getPositions() {
+  const tpl = document.querySelector('input[name="template"]:checked')?.value || 'namnam';
+  // subtitle_y → margin_v = 1920 - subtitle_y
+  const sub_margin = 1920 - posVal('subtitle_y');
+  if (tpl === 'silver_crown') {
+    return {
+      title_y:          posVal('title_y'),
+      video_y:          posVal('video_y_silver'),
+      source_y:         posVal('source_y'),
+      subtitle_margin_v: sub_margin,
+    };
+  } else {
+    return {
+      banner_h:          posVal('banner_h'),
+      video_y:           posVal('video_y_namnam'),
+      subtitle_margin_v: sub_margin,
+    };
+  }
+}
+
+function getStyles() {
+  return {
+    banner_font_size:   styVal('banner_font_size'),
+    title_font_size:    styVal('title_font_size'),
+    subtitle_font_size: styVal('subtitle_font_size'),
+    source_font_size:   styVal('source_font_size'),
+  };
+}
+
+function getSourceText() {
+  return document.getElementById('source-text-input')?.value?.trim() || '';
+}
+
+// ── 템플릿 전환 ──────────────────────────────────────
+function applyTemplateSwitch(tpl) {
+  const isSilver = tpl === 'silver_crown';
+  document.querySelectorAll('.drag-handle').forEach(h => {
+    const forNm = h.dataset.nm === '1';
+    const forSc = h.dataset.sc === '1';
+    h.style.display = (forNm && !isSilver) || (forSc && isSilver) || (forNm && forSc) ? '' : 'none';
+  });
+  const stw = document.getElementById('source-text-wrap');
+  if (stw) stw.style.display = isSilver ? '' : 'none';
+  document.getElementById('tpl-namnam').style.borderColor = isSilver ? 'var(--border)' : 'var(--accent)';
+  document.getElementById('tpl-silver').style.borderColor = isSilver ? 'var(--accent)' : 'var(--border)';
+}
+
+document.querySelectorAll('input[name="template"]').forEach(radio => {
+  radio.addEventListener('change', () => {
+    applyTemplateSwitch(radio.value);
+    if (sourceFilename) requestTemplatePreview();
+  });
+});
+
+// 출처 텍스트 변경 → 갱신
+document.getElementById('source-text-input')?.addEventListener('input', () => {
+  if (sourceFilename) debouncedPreview();
+});
+
+let previewDebounce = null;
+function debouncedPreview() {
+  clearTimeout(previewDebounce);
+  previewDebounce = setTimeout(requestTemplatePreview, 600);
+}
+
+async function requestTemplatePreview() {
+  if (!sourceFilename) return;
+  const tpl   = document.querySelector('input[name="template"]:checked')?.value || 'namnam';
+  const title = document.getElementById('topic-input').value.trim();
+
+  try {
+    const res  = await fetch('/pipeline/template-preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        filename:    sourceFilename,
+        template:    tpl,
+        title,
+        positions:   getPositions(),
+        styles:      getStyles(),
+        source_text: getSourceText(),
+      }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      sourcePreviewImg.src            = data.preview_url + '?t=' + Date.now();
+      sourcePreviewWrap.style.display = 'block';
+      sourcePreviewImg.onload = syncHandlePositions;
+    } else {
+      showToast('미리보기 실패: ' + data.error, 'error');
+    }
+  } catch (e) {
+    showToast('미리보기 오류: ' + e.message, 'error');
+  }
+}
+
+// 제목 변경 시 자동 갱신
+document.getElementById('topic-input').addEventListener('input', () => {
+  if (!sourceFilename) return;
+  debouncedPreview();
+});
+
+// 갱신 버튼
+sourceRefreshBtn.addEventListener('click', requestTemplatePreview);
 
 /* ====================================================
    창작 파이프라인 — 상태
    ==================================================== */
-let pipelineKeywords = [];   // 대본 생성 시 받은 Pexels 검색 키워드
 let pipelineTopic    = '';   // 현재 주제
 
 // DOM 참조 (창작 모드 전용)
 const topicInput          = document.getElementById('topic-input');
-const genScriptBtn        = document.getElementById('gen-script-btn');
 const scriptCard          = document.getElementById('script-card');
 const scriptTextarea      = document.getElementById('script-textarea');
 const approveScriptBtn    = document.getElementById('approve-script-btn');
-const regenScriptBtn      = document.getElementById('regen-script-btn');
+const downloadScriptBtn   = document.getElementById('download-script-btn');
 const pipelineProgressCard = document.getElementById('pipeline-progress-card');
 const pipelineFill        = document.getElementById('pipeline-fill');
 const pipelineText        = document.getElementById('pipeline-text');
 const pipelineResultCard  = document.getElementById('pipeline-result-card');
 const pipelineDownloadBtn = document.getElementById('pipeline-download-btn');
+const srtDownloadBtn      = document.getElementById('srt-download-btn');
+const srtPreview          = document.getElementById('srt-preview');
+const srtContent          = document.getElementById('srt-content');
 const pipelineNewBtn      = document.getElementById('pipeline-new-btn');
+const pipelineEta         = document.getElementById('pipeline-eta');
 const apiWarning          = document.getElementById('api-warning');
+const uploadScriptBtn     = document.getElementById('upload-script-btn');
+const scriptFileInput     = document.getElementById('script-file-input');
+const irasutoyaCard      = document.getElementById('irasutoya-card');
+const irasutoyaTagsWrap  = document.getElementById('irasutoya-tags-wrap');
+const irasutoyaConfirmBtn = document.getElementById('irasutoya-confirm-btn');
 
 // 단계 인디케이터 요소
 const PSTEPS = {
@@ -772,72 +1072,208 @@ const PSTEPS = {
   assemble: document.getElementById('pstep-assemble'),
 };
 
+/* ====================================================
+   이라스토야 태그 파싱 + 이미지 선택 UI
+   ==================================================== */
+// 태그 형식: (keyword:N초) 또는 (keyword:Ns)
+const IRA_TAG_RE = /\(([^():]+):(\d+(?:\.\d+)?)[초s]\)/g;
+
+function parseScriptTags(script) {
+  const tags = [];
+  IRA_TAG_RE.lastIndex = 0;
+  let match;
+  while ((match = IRA_TAG_RE.exec(script)) !== null) {
+    const beforeTag = script.substring(0, match.index).trimEnd().split('\n').pop().trim();
+    tags.push({
+      keyword:  match[1].trim(),
+      duration: parseFloat(match[2]),
+      anchor:   beforeTag,
+      original: match[0],
+    });
+  }
+  return tags;
+}
+
+function stripScriptTags(script) {
+  return script.replace(/\([^():]+:\d+(?:\.\d+)?[초s]\)/g, '').replace(/\s{2,}/g, ' ').trim();
+}
+
+// 태그별 선택 상태 {tagIndex: {image_url, title}}
+let irasutoyaSelections = {};
+let parsedTags = [];
+
+async function buildIrasutoyaUI(tags) {
+  irasutoyaSelections = {};
+  irasutoyaTagsWrap.innerHTML = '';
+
+  for (let i = 0; i < tags.length; i++) {
+    const tag   = tags[i];
+    const block = document.createElement('div');
+    block.className = 'ira-tag-block';
+    block.dataset.idx = i;
+    block.innerHTML = `
+      <div class="ira-tag-label">
+        <strong>"${tag.keyword}"</strong>
+        <span class="ira-dur">${tag.duration}초</span>
+        <span>앞 문장: ${tag.anchor || '(없음)'}</span>
+      </div>
+      <div class="ira-loading">🔍 이미지 검색 중...</div>
+      <div class="ira-actions" style="margin-top:8px">
+        <input class="ira-keyword-input" value="${tag.keyword}" placeholder="다른 키워드로 재검색">
+        <button class="btn btn-outline btn-sm ira-research-btn" data-idx="${i}">🔍 재검색</button>
+        <button class="btn btn-outline btn-sm ira-skip-btn" data-idx="${i}">⏭ 건너뛰기</button>
+      </div>`;
+    irasutoyaTagsWrap.appendChild(block);
+
+    // 이미지 검색
+    await searchAndRenderOptions(block, i, tag.keyword);
+  }
+
+  // 재검색 / 건너뛰기 이벤트
+  irasutoyaTagsWrap.addEventListener('click', async e => {
+    const btn = e.target.closest('.ira-research-btn, .ira-skip-btn');
+    if (!btn) return;
+    const idx = parseInt(btn.dataset.idx);
+    const block = irasutoyaTagsWrap.querySelector(`.ira-tag-block[data-idx="${idx}"]`);
+
+    if (btn.classList.contains('ira-skip-btn')) {
+      delete irasutoyaSelections[idx];
+      block.querySelectorAll('.ira-option').forEach(o => o.classList.remove('selected'));
+      block.style.opacity = '0.45';
+      return;
+    }
+
+    // 재검색
+    const keyword = block.querySelector('.ira-keyword-input').value.trim();
+    if (!keyword) return;
+    block.style.opacity = '1';
+    delete irasutoyaSelections[idx];
+    const grid = block.querySelector('.ira-options');
+    if (grid) grid.innerHTML = '<div class="ira-loading">🔍 검색 중...</div>';
+    else {
+      const loading = block.querySelector('.ira-loading');
+      if (loading) loading.textContent = '🔍 검색 중...';
+    }
+    await searchAndRenderOptions(block, idx, keyword);
+  });
+}
+
+async function searchAndRenderOptions(block, idx, keyword) {
+  try {
+    const res  = await fetch('/pipeline/search-irasutoya', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ keyword }),
+    });
+    const data = await res.json();
+
+    // 기존 로딩 문구 제거
+    const loading = block.querySelector('.ira-loading');
+    if (loading) loading.remove();
+
+    let grid = block.querySelector('.ira-options');
+    if (!grid) {
+      grid = document.createElement('div');
+      grid.className = 'ira-options';
+      block.querySelector('.ira-actions').before(grid);
+    }
+    grid.innerHTML = '';
+
+    if (!data.ok || !data.images?.length) {
+      grid.innerHTML = '<p style="font-size:.8rem;color:var(--text-muted);text-align:center">검색 결과 없음</p>';
+      return;
+    }
+
+    data.images.forEach((img, j) => {
+      const opt = document.createElement('div');
+      opt.className = 'ira-option';
+      opt.dataset.idx = idx;
+      opt.dataset.j   = j;
+      opt.innerHTML = `<img src="${img.thumb}" alt="${img.title}" loading="lazy">
+                       <div class="ira-opt-title">${img.title}</div>`;
+      opt.addEventListener('click', () => {
+        grid.querySelectorAll('.ira-option').forEach(o => o.classList.remove('selected'));
+        opt.classList.add('selected');
+        block.style.opacity = '1';
+        irasutoyaSelections[idx] = { image_url: img.full, title: img.title };
+      });
+      grid.appendChild(opt);
+    });
+  } catch (e) {
+    const loading = block.querySelector('.ira-loading');
+    if (loading) loading.textContent = '검색 오류: ' + e.message;
+  }
+}
+
 /* API 키 설정 상태 확인 */
 async function checkPipelineConfig() {
   try {
     const res  = await fetch('/pipeline/check-config');
     const data = await res.json();
-    if (!data.ok) return;
-
-    const warnings = [];
-    if (!data.claude_key_set)  warnings.push('⚠️ CLAUDE_API_KEY 미설정 — 대본 자동 생성 불가\nexport CLAUDE_API_KEY=sk-ant-...');
-    if (!data.pexels_key_set)  warnings.push('⚠️ PEXELS_API_KEY 미설정 — 배경 영상 수집 불가\nexport PEXELS_API_KEY=...\n(https://www.pexels.com/api 에서 무료 발급)');
-
-    if (warnings.length > 0) {
-      apiWarning.textContent     = warnings.join('\n\n');
-      apiWarning.style.display   = 'block';
-    } else {
-      apiWarning.style.display   = 'none';
-    }
+    apiWarning.style.display = 'none';
   } catch { /* 네트워크 오류는 무시 */ }
 }
 
 /* ====================================================
-   Step 1: 대본 생성
+   대본 업로드 — 파일 내용을 textarea에 표시
    ==================================================== */
-genScriptBtn.addEventListener('click', generateScript);
-topicInput.addEventListener('keydown', e => { if (e.key === 'Enter') generateScript(); });
-regenScriptBtn.addEventListener('click', generateScript);
+uploadScriptBtn.addEventListener('click', () => scriptFileInput.click());
 
-async function generateScript() {
-  const topic = topicInput.value.trim();
-  if (!topic) { showToast('주제를 입력해주세요.', 'error'); return; }
+scriptFileInput.addEventListener('change', () => {
+  const file = scriptFileInput.files[0];
+  if (!file) return;
+  const isSrt = file.name.toLowerCase().endsWith('.srt');
+  const reader = new FileReader();
+  reader.onload = e => {
+    const raw = e.target.result.trim();
+    scriptTextarea.value = isSrt ? parseSrtToText(raw) : raw;
+    showToast(isSrt ? 'SRT에서 텍스트 추출 완료' : '대본 업로드 완료', 'success');
+  };
+  reader.readAsText(file, 'UTF-8');
+  scriptFileInput.value = '';
+});
 
-  pipelineTopic       = topic;
-  genScriptBtn.disabled    = true;
-  genScriptBtn.textContent = '⏳ 생성 중...';
-  scriptCard.style.display = 'none';
-
-  try {
-    const res  = await fetch('/pipeline/generate-script', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ topic }),
-    });
-    const data = await res.json();
-
-    if (!data.ok) { showToast(data.error || '대본 생성 실패', 'error'); return; }
-
-    scriptTextarea.value     = data.script || '';
-    pipelineKeywords         = data.keywords || [];
-    scriptCard.style.display = 'block';
-    // 스크롤해서 대본 카드 보이게
-    scriptCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
-
-  } catch { showToast('네트워크 오류', 'error'); }
-  finally {
-    genScriptBtn.disabled    = false;
-    genScriptBtn.textContent = '🤖 대본 자동 생성';
+function parseSrtToText(srt) {
+  // 번호줄, 타임코드줄 제거 → 텍스트 줄만 추출
+  const lines = srt.split('\n');
+  const text  = [];
+  for (const line of lines) {
+    const t = line.trim();
+    if (!t) continue;
+    if (/^\d+$/.test(t)) continue;                   // 번호
+    if (/^\d{2}:\d{2}:\d{2}[,\.]\d{3}/.test(t)) continue; // 타임코드
+    text.push(t);
   }
+  return text.join(' ');
 }
+
+/* ====================================================
+   대본 저장 (.txt)
+   ==================================================== */
+downloadScriptBtn.addEventListener('click', () => {
+  const text = scriptTextarea.value.trim();
+  if (!text) { showToast('대본이 없습니다.', 'error'); return; }
+  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = (topicInput.value.trim() || '대본') + '.txt';
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
 
 /* ====================================================
    Step 2: 승인 → 파이프라인 실행
    ==================================================== */
 approveScriptBtn.addEventListener('click', async () => {
-  const script = scriptTextarea.value.trim();
-  if (!script) { showToast('대본이 비어있습니다.', 'error'); return; }
+  const script  = scriptTextarea.value.trim();
+  const useTts  = document.getElementById('use-tts-toggle').checked;
+  if (!script && useTts) { showToast('TTS 사용 시 대본을 입력해주세요.', 'error'); return; }
+  if (!sourceFilename) { showToast('메인 소스 영상을 먼저 업로드해주세요.', 'error'); return; }
 
+  pipelineTopic = topicInput.value.trim() || '숏츠';
+  parsedTags    = []; // 이라스토야 비활성화 — 태그 파싱 건너뜀
+
+  // 바로 실행
   approveScriptBtn.disabled    = true;
   scriptCard.style.display     = 'none';
   pipelineProgressCard.style.display = 'block';
@@ -848,15 +1284,36 @@ approveScriptBtn.addEventListener('click', async () => {
   PSTEPS.voice.classList.add('active');
   pipelineFill.style.width = '0%';
   pipelineText.textContent = '준비 중...';
+  pipelineEta.textContent   = '진행 중: 0초 경과';
+  pipelineEta.style.display = 'block';
+  const _pipelineStart = Date.now();
+  let _etaTimer = setInterval(() => {
+    const sec = Math.floor((Date.now() - _pipelineStart) / 1000);
+    const m = Math.floor(sec / 60), s = sec % 60;
+    pipelineEta.textContent = m > 0
+      ? `진행 중: ${m}분 ${s}초 경과`
+      : `진행 중: ${s}초 경과`;
+  }, 1000);
 
   try {
     const res  = await fetch('/pipeline/run', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({
-        script,
-        keywords: pipelineKeywords,
-        topic:    pipelineTopic,
+        script:          stripScriptTags(script),
+        topic:           pipelineTopic,
+        template:        document.querySelector('input[name="template"]:checked')?.value || 'namnam',
+        source_filename: sourceFilename,
+        use_tts:         document.getElementById('use-tts-toggle').checked,
+        use_subtitle:    document.getElementById('use-subtitle-toggle').checked,
+        positions:       getPositions(),
+        styles:          getStyles(),
+        source_text:     getSourceText(),
+        irasutoya_overlays: parsedTags
+          .map((tag, i) => irasutoyaSelections[i]
+            ? { anchor: tag.anchor, image_url: irasutoyaSelections[i].image_url, duration: tag.duration }
+            : null)
+          .filter(Boolean),
       }),
     });
     const data = await res.json();
@@ -871,6 +1328,8 @@ approveScriptBtn.addEventListener('click', async () => {
 
     subscribeProgress(data.job_id, payload => {
       if (payload.error) {
+        clearInterval(_etaTimer);
+        pipelineEta.style.display          = 'none';
         pipelineText.textContent           = '❌ ' + payload.error;
         pipelineProgressCard.style.display = 'none';
         scriptCard.style.display           = 'block';
@@ -887,16 +1346,34 @@ approveScriptBtn.addEventListener('click', async () => {
       _updatePipelineSteps(pct);
 
       if (payload.done) {
+        clearInterval(_etaTimer);
         Object.values(PSTEPS).forEach(el => { el.classList.remove('active'); el.classList.add('done'); });
+        pipelineEta.style.display          = 'none';
         pipelineProgressCard.style.display = 'none';
         pipelineResultCard.style.display   = 'block';
         pipelineDownloadBtn.href           = `/download/${payload.result}`;
         pipelineDownloadBtn.download       = payload.result;
+
+        if (payload.srt) {
+          srtDownloadBtn.href              = `/download/${payload.srt}`;
+          srtDownloadBtn.download          = payload.srt;
+          srtDownloadBtn.style.display     = 'block';
+          fetch(`/download/${payload.srt}`)
+            .then(r => r.text())
+            .then(text => {
+              srtContent.textContent       = text;
+              srtPreview.style.display     = 'block';
+            })
+            .catch(() => {});
+        }
+
         showToast('숏츠 완성!', 'success');
       }
     });
 
   } catch {
+    clearInterval(_etaTimer);
+    pipelineEta.style.display          = 'none';
     showToast('네트워크 오류', 'error');
     pipelineProgressCard.style.display = 'none';
     scriptCard.style.display           = 'block';
@@ -930,13 +1407,154 @@ function _updatePipelineSteps(pct) {
 /* ====================================================
    새 숏츠 만들기 버튼 — 창작 UI 초기화
    ==================================================== */
+/* 이라스토야 선택 완료 → 파이프라인 실행 */
+irasutoyaConfirmBtn.addEventListener('click', async () => {
+  irasutoyaCard.style.display        = 'none';
+  scriptCard.style.display           = 'none';
+  pipelineProgressCard.style.display = 'block';
+  pipelineResultCard.style.display   = 'none';
+
+  Object.values(PSTEPS).forEach(el => el.classList.remove('active', 'done'));
+  PSTEPS.voice.classList.add('active');
+  pipelineFill.style.width = '0%';
+  pipelineText.textContent = '준비 중...';
+  pipelineEta.textContent  = '진행 중: 0초 경과';
+  pipelineEta.style.display = 'block';
+
+  const script   = scriptTextarea.value.trim();
+  const _start   = Date.now();
+  const _etaT    = setInterval(() => {
+    const sec = Math.floor((Date.now() - _start) / 1000);
+    const m = Math.floor(sec / 60), s = sec % 60;
+    pipelineEta.textContent = m > 0 ? `진행 중: ${m}분 ${s}초 경과` : `진행 중: ${s}초 경과`;
+  }, 1000);
+
+  try {
+    const res  = await fetch('/pipeline/run', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({
+        script:          stripScriptTags(script),
+        topic:           pipelineTopic,
+        template:        document.querySelector('input[name="template"]:checked')?.value || 'namnam',
+        source_filename: sourceFilename,
+        use_tts:         document.getElementById('use-tts-toggle').checked,
+        use_subtitle:    document.getElementById('use-subtitle-toggle').checked,
+        positions:       getPositions(),
+        styles:          getStyles(),
+        source_text:     getSourceText(),
+        irasutoya_overlays: parsedTags
+          .map((tag, i) => irasutoyaSelections[i]
+            ? { anchor: tag.anchor, image_url: irasutoyaSelections[i].image_url, duration: tag.duration }
+            : null)
+          .filter(Boolean),
+      }),
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      clearInterval(_etaT);
+      showToast(data.error || '실패', 'error');
+      pipelineProgressCard.style.display = 'none';
+      irasutoyaCard.style.display        = 'block';
+      return;
+    }
+    subscribeProgress(data.job_id, payload => {
+      if (payload.error) {
+        clearInterval(_etaT);
+        showToast(payload.error, 'error');
+        pipelineProgressCard.style.display = 'none';
+        irasutoyaCard.style.display        = 'block';
+        irasutoyaConfirmBtn.disabled       = false;
+        return;
+      }
+      pipelineFill.style.width = (payload.pct || 0) + '%';
+      if (payload.msg) pipelineText.textContent = payload.msg;
+      if (payload.done) {
+        clearInterval(_etaT);
+        pipelineProgressCard.style.display = 'none';
+        pipelineResultCard.style.display   = 'block';
+        if (payload.result) {
+          pipelineDownloadBtn.href = `/download/${encodeURIComponent(payload.result)}`;
+          pipelineDownloadBtn.download = payload.result;
+        }
+      }
+    });
+  } catch (e) {
+    clearInterval(_etaT);
+    showToast('네트워크 오류: ' + e.message, 'error');
+  }
+});
+
 pipelineNewBtn.addEventListener('click', () => {
+  // ── 텍스트 초기화 ──
   topicInput.value             = '';
   scriptTextarea.value         = '';
-  pipelineKeywords             = [];
   pipelineTopic                = '';
-  scriptCard.style.display     = 'none';
+  parsedTags                   = [];
+  irasutoyaSelections          = {};
+  irasutoyaTagsWrap.innerHTML  = '';
+
+  // ── 카드 표시 초기화 ──
+  irasutoyaCard.style.display        = 'none';
+  scriptCard.style.display           = 'block';
   pipelineResultCard.style.display   = 'none';
-  approveScriptBtn.disabled    = false;
+  srtDownloadBtn.style.display       = 'none';
+  srtPreview.style.display           = 'none';
+  srtContent.textContent             = '';
+  approveScriptBtn.disabled          = false;
+
+  // ── 소스 업로드 초기화 ──
+  sourceFilename                     = null;
+  document.getElementById('source-preview-wrap').style.display = 'none';
+  document.getElementById('source-drop-zone').style.display    = 'block';
+  document.getElementById('source-upload-progress').style.display = 'none';
+
+  // ── 출처 텍스트 초기화 ──
+  const srcTxt = document.getElementById('source-text-input');
+  if (srcTxt) srcTxt.value = '출처: 실버크라운';
+
+  // ── 토글 초기화 ──
+  document.getElementById('use-tts-toggle').checked      = true;
+  document.getElementById('use-subtitle-toggle').checked = true;
+
+  // ── 템플릿 초기화 (냠냠코기) ──
+  const nmRadio = document.querySelector('input[name="template"][value="namnam"]');
+  if (nmRadio) { nmRadio.checked = true; applyTemplateSwitch('namnam'); }
+
+  // ── 위치 핸들 기본값 초기화 ──
+  const posDefaults = {
+    banner_h: 240, video_y_namnam: 240, title_y: 320,
+    video_y_silver: 580, subtitle_y: 1720, source_y: 1620,
+  };
+  Object.entries(posDefaults).forEach(([key, v]) => {
+    const inp = document.getElementById(POS_INPUT[key]);
+    if (inp) inp.value = v;
+    const sp  = document.getElementById(POS_YSPAN[key]);
+    if (sp)  sp.textContent = v;
+  });
+
+  // ── 폰트 크기 기본값 초기화 ──
+  const styDefaults = {
+    banner_font_size: 60, title_font_size: 65,
+    subtitle_font_size: 55, source_font_size: 40,
+  };
+  Object.entries(styDefaults).forEach(([key, v]) => setStyVal(key, v));
+
   document.getElementById('topic-card').scrollIntoView({ behavior: 'smooth' });
+});
+
+/* 템플릿 라디오 버튼 — 선택된 항목 테두리 강조 */
+document.querySelectorAll('input[name="template"]').forEach(radio => {
+  radio.addEventListener('change', () => {
+    document.querySelectorAll('input[name="template"]').forEach(r => {
+      const label = r.closest('label');
+      if (r.checked) {
+        label.style.borderColor = 'var(--accent)';
+        label.style.background  = 'rgba(99,102,241,.08)';
+      } else {
+        label.style.borderColor = 'var(--border)';
+        label.style.background  = '';
+      }
+    });
+  });
 });

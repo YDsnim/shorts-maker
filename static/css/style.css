@@ -61,7 +61,7 @@ main {
 }
 
 /* ── 업로드 드롭존 ────────────────────────────────── */
-#drop-zone {
+#drop-zone, #source-drop-zone {
   border: 2px dashed var(--border);
   border-radius: 10px;
   padding: 36px 16px;
@@ -69,12 +69,13 @@ main {
   cursor: pointer;
   transition: border-color .2s, background .2s;
 }
-#drop-zone:hover, #drop-zone.dragover {
+#drop-zone:hover, #drop-zone.drag-over,
+#source-drop-zone:hover, #source-drop-zone.drag-over {
   border-color: var(--accent);
   background: rgba(124,106,247,.06);
 }
-#drop-zone strong { display: block; margin-bottom: 6px; }
-#drop-zone p { color: var(--text-muted); font-size: .85rem; }
+#drop-zone strong, #source-drop-zone strong { display: block; margin-bottom: 6px; }
+#drop-zone p, #source-drop-zone p { color: var(--text-muted); font-size: .85rem; }
 #file-input { display: none; }
 
 /* ── 영상 정보 뱃지 ───────────────────────────────── */
@@ -366,30 +367,154 @@ main {
 .btn-yt:hover  { opacity: .85; }
 .btn-yt:disabled { opacity: .45; cursor: not-allowed; }
 
-/* ── 앱 모드 전환 탭 (편집 / 창작) ────────────────── */
-#app-mode-bar {
+/* ── 섹션 구분선 ──────────────────────────────────── */
+.section-divider {
   display: flex;
-  gap: 8px;
+  align-items: center;
+  gap: 12px;
+  margin: 24px 0 16px;
+  font-size: .85rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+.section-divider::before,
+.section-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+/* ── 미리보기 드래그 컨테이너 ────────────────────── */
+#preview-drag-wrap {
+  position: relative;
+  width: 78%;
+  margin: 0 auto;
+  display: block;
+  border-radius: 8px;
+  overflow: visible;
+  user-select: none;
+}
+#preview-drag-wrap img { width: 100%; display: block; border-radius: 8px; }
+
+.drag-handle {
+  position: absolute;
+  left: 0; right: 0;
+  height: 0;
+  border-top: 2px dashed;
+  cursor: ns-resize;
+  z-index: 10;
+  touch-action: none;
+}
+.drag-handle:hover { filter: brightness(1.3); }
+
+/* 왼쪽 뱃지: 이름 + 크기 버튼 */
+.dh-badge {
+  position: absolute;
+  left: 0; top: -22px;
+  display: flex; align-items: center; gap: 3px;
+  background: rgba(0,0,0,.65);
+  border-radius: 4px;
+  padding: 2px 5px;
+  pointer-events: auto;
+}
+.dh-name {
+  font-size: .62rem; font-weight: 700; color: #fff; white-space: nowrap;
+}
+.sz-btn {
+  font-size: .7rem; font-weight: 700;
+  background: rgba(255,255,255,.15); color: #fff;
+  border: none; border-radius: 3px;
+  width: 16px; height: 16px; line-height: 1;
+  cursor: pointer; padding: 0;
+}
+.sz-btn:hover { background: rgba(255,255,255,.35); }
+.sz-num { font-size: .62rem; color: #fff; min-width: 16px; text-align: center; }
+
+/* 오른쪽: Y값 */
+.dh-yval {
+  position: absolute;
+  right: 0; top: -22px;
+  font-size: .62rem; color: #fff;
+  background: rgba(0,0,0,.65);
+  border-radius: 4px; padding: 2px 5px;
+  pointer-events: none; white-space: nowrap;
+}
+
+/* ── 이라스토야 이미지 선택 UI ───────────────────── */
+.ira-tag-block {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px;
   margin-bottom: 16px;
 }
-.app-mode-btn {
-  flex: 1;
-  padding: 11px 8px;
-  background: var(--card);
-  border: 1.5px solid var(--border);
-  border-radius: 12px;
+.ira-tag-label {
+  font-size: .82rem;
   color: var(--text-muted);
-  font-size: .9rem;
-  font-weight: 700;
-  cursor: pointer;
-  transition: border-color .2s, color .2s, background .2s;
-  text-align: center;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
-.app-mode-btn:hover  { border-color: var(--accent); color: var(--text); }
-.app-mode-btn.active {
-  border-color: var(--accent);
-  background: rgba(124,106,247,.14);
+.ira-tag-label strong { color: var(--text); font-size: .9rem; }
+.ira-tag-label .ira-dur { background: var(--accent); color: #fff; border-radius: 4px; padding: 1px 7px; font-size: .75rem; }
+.ira-options {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.ira-option {
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  padding: 6px;
+  cursor: pointer;
+  text-align: center;
+  transition: border-color .15s, background .15s;
+  background: var(--card);
+}
+.ira-option:hover  { border-color: var(--accent); }
+.ira-option.selected { border-color: var(--accent); background: rgba(99,102,241,.1); }
+.ira-option img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: contain;
+  border-radius: 4px;
+  background: #fff;
+  display: block;
+}
+.ira-option .ira-opt-title {
+  font-size: .68rem;
+  color: var(--text-muted);
+  margin-top: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ira-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.ira-keyword-input {
+  flex: 1;
+  min-width: 120px;
+  padding: 6px 10px;
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  background: var(--input-bg);
   color: var(--text);
+  font-size: .85rem;
+}
+.ira-loading {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: .82rem;
+  padding: 20px 0;
 }
 
 /* ── API 키 경고 배너 ─────────────────────────────── */

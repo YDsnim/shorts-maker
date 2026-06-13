@@ -15,14 +15,8 @@
 
 <main>
 
-  <!-- ── 앱 모드 탭 (편집 / 창작) ───────────────── -->
-  <div id="app-mode-bar">
-    <button class="app-mode-btn active" data-app="edit">✏️ 편집</button>
-    <button class="app-mode-btn" data-app="create">🎬 영상 창작</button>
-  </div>
-
   <!-- ════════════════════════════════════════════ -->
-  <!--  편집 모드 (기존 UI)                          -->
+  <!--  편집 영역                                    -->
   <!-- ════════════════════════════════════════════ -->
   <div id="edit-mode">
 
@@ -150,38 +144,216 @@
   </div><!-- /edit-mode -->
 
   <!-- ════════════════════════════════════════════ -->
-  <!--  창작 모드 (파이프라인 UI)                    -->
+  <!--  영상 창작 영역                               -->
   <!-- ════════════════════════════════════════════ -->
-  <div id="create-mode" style="display:none">
+  <div class="section-divider">🎬 영상 창작</div>
+  <div id="create-mode">
 
     <!-- API 키 경고 배너 (키 미설정 시 표시) -->
     <div id="api-warning" class="warning-banner" style="display:none"></div>
 
-    <!-- ── Step 1: 주제 입력 ───────────────────── -->
+    <!-- ── Step 1: 영상 제목 + 템플릿 선택 ──────── -->
     <div class="card" id="topic-card">
-      <div class="card-title"><span class="icon">💡</span> 숏츠 주제 입력</div>
+      <div class="card-title"><span class="icon">✏️</span> 영상 제목 입력</div>
       <input type="text" id="topic-input"
-             placeholder="예: 한국인이 모르는 심리학 사실 5가지"
-             autocomplete="off" maxlength="100">
-      <button class="btn btn-primary" id="gen-script-btn" style="margin-top:12px">
-        🤖 대본 자동 생성
-      </button>
-      <p class="mode-desc" style="margin-top:10px;margin-bottom:0">
-        Claude AI가 60초 분량 대본을 작성합니다. <span class="cost-badge">약 1~2원/편</span>
-      </p>
+             placeholder="예: AI가 절대 못 하는 5가지 일"
+             autocomplete="off" maxlength="100"
+             style="width:100%;padding:10px 12px;font-size:1rem;border:1.5px solid var(--border);border-radius:8px;background:var(--input-bg);color:var(--text);box-sizing:border-box">
+      <div style="margin-top:14px">
+        <div style="font-size:.8rem;color:var(--text-muted);margin-bottom:8px">템플릿 선택</div>
+        <div style="display:flex;gap:8px">
+          <label id="tpl-namnam" style="flex:1;display:flex;align-items:center;gap:8px;padding:10px 14px;border:1.5px solid var(--accent);border-radius:8px;cursor:pointer;background:var(--accent-bg,rgba(99,102,241,.08))">
+            <input type="radio" name="template" value="namnam" checked style="accent-color:var(--accent)">
+            <span style="font-size:.9rem;font-weight:600">냠냠코기 스타일</span>
+          </label>
+          <label id="tpl-silver" style="flex:1;display:flex;align-items:center;gap:8px;padding:10px 14px;border:1.5px solid var(--border);border-radius:8px;cursor:pointer">
+            <input type="radio" name="template" value="silver_crown" style="accent-color:var(--accent)">
+            <span style="font-size:.9rem;font-weight:600">실버크라운</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- 출처 텍스트 (실버크라운 선택 시 표시) -->
+      <div id="source-text-wrap" style="display:none;margin-top:12px">
+        <div style="font-size:.8rem;color:var(--text-muted);margin-bottom:6px">출처 텍스트</div>
+        <input type="text" id="source-text-input" value="출처: 실버크라운"
+               placeholder="예: 출처: 채널명"
+               style="width:100%;padding:9px 12px;font-size:.9rem;border:1.5px solid var(--border);border-radius:8px;background:var(--input-bg);color:var(--text);box-sizing:border-box">
+      </div>
     </div>
 
-    <!-- ── Step 2: 대본 검토·수정 ──────────────── -->
-    <div class="card" id="script-card" style="display:none">
-      <div class="card-title"><span class="icon">📝</span> 대본 검토 · 수정</div>
+    <!-- ── Step 2: 메인 소스 영상 업로드 ─────── -->
+    <div class="card" id="source-card">
+      <div class="card-title"><span class="icon">🎥</span> 메인 소스 영상</div>
+      <div id="source-drop-zone">
+        <strong>소스 영상을 여기에 끌어다 놓거나 클릭하세요</strong>
+        <p>MP4, MOV, AVI, MKV · 최대 500MB</p>
+      </div>
+      <input type="file" id="source-file-input" accept="video/*" style="display:none">
+
+      <!-- 업로드 진행률 -->
+      <div id="source-upload-progress" style="display:none;margin-top:10px">
+        <div class="progress-bar-wrap">
+          <div class="progress-bar" id="source-upload-fill"></div>
+        </div>
+        <p id="source-upload-text" style="font-size:.8rem;color:var(--text-muted);text-align:center;margin-top:6px">업로드 중...</p>
+      </div>
+
+      <!-- 미리보기 + 드래그 위치·크기 조정 -->
+      <div id="source-preview-wrap" style="display:none;margin-top:14px">
+        <div style="font-size:.8rem;color:var(--text-muted);margin-bottom:8px">
+          선을 드래그 → 위치 조정 &nbsp;|&nbsp; <span style="color:var(--accent)">−/+</span> → 글자 크기
+        </div>
+
+        <!-- 드래그 컨테이너 -->
+        <div id="preview-drag-wrap">
+          <img id="source-preview-img" alt="미리보기">
+
+          <!--
+            data-key    : 위치값 hidden input key
+            data-sty    : 폰트 크기 styles key (없으면 크기버튼 미표시)
+            data-nm     : 냠냠코기에서 표시? (1=예)
+            data-sc     : 실버크라운에서 표시? (1=예)
+          -->
+
+          <!-- 제목 (냠냠=배너하단, 실버=title_y) -->
+          <div class="drag-handle" id="dh-title-nm"
+               data-key="banner_h" data-sty="banner_font_size"
+               data-min="80" data-max="500" data-default="240"
+               data-nm="1" data-sc="0"
+               style="border-color:#FFCC00;top:12.5%">
+            <span class="dh-badge">
+              <span class="dh-name">제목</span>
+              <button class="sz-btn" data-sty="banner_font_size" data-delta="-2">−</button>
+              <span class="sz-num" id="szn-banner">60</span>pt
+              <button class="sz-btn" data-sty="banner_font_size" data-delta="2">+</button>
+            </span>
+            <span class="dh-yval" id="dhv-banner-h">240</span>
+          </div>
+
+          <div class="drag-handle" id="dh-title-sc"
+               data-key="title_y" data-sty="title_font_size"
+               data-min="0" data-max="700" data-default="320"
+               data-nm="0" data-sc="1"
+               style="border-color:#FFCC00;top:16.7%;display:none">
+            <span class="dh-badge">
+              <span class="dh-name">제목</span>
+              <button class="sz-btn" data-sty="title_font_size" data-delta="-2">−</button>
+              <span class="sz-num" id="szn-title">65</span>pt
+              <button class="sz-btn" data-sty="title_font_size" data-delta="2">+</button>
+            </span>
+            <span class="dh-yval" id="dhv-title-y">320</span>
+          </div>
+
+          <!-- 영상 -->
+          <div class="drag-handle" id="dh-video-nm"
+               data-key="video_y_namnam"
+               data-min="80" data-max="900" data-default="240"
+               data-nm="1" data-sc="0"
+               style="border-color:#4ade80;top:12.5%">
+            <span class="dh-badge"><span class="dh-name">영상</span></span>
+            <span class="dh-yval" id="dhv-video-y-nm">240</span>
+          </div>
+
+          <div class="drag-handle" id="dh-video-sc"
+               data-key="video_y_silver"
+               data-min="100" data-max="1200" data-default="580"
+               data-nm="0" data-sc="1"
+               style="border-color:#4ade80;top:30.2%;display:none">
+            <span class="dh-badge"><span class="dh-name">영상</span></span>
+            <span class="dh-yval" id="dhv-video-y-sc">580</span>
+          </div>
+
+          <!-- 자막 (공통 — 하단 기준 마진으로 계산) -->
+          <div class="drag-handle" id="dh-subtitle"
+               data-key="subtitle_y"
+               data-min="800" data-max="1880" data-default="1720"
+               data-nm="1" data-sc="1"
+               style="border-color:#38bdf8;top:89.6%">
+            <span class="dh-badge">
+              <span class="dh-name">자막</span>
+              <button class="sz-btn" data-sty="subtitle_font_size" data-delta="-2">−</button>
+              <span class="sz-num" id="szn-subtitle">55</span>pt
+              <button class="sz-btn" data-sty="subtitle_font_size" data-delta="2">+</button>
+            </span>
+            <span class="dh-yval" id="dhv-subtitle-y">1720</span>
+          </div>
+
+          <!-- 출처 (실버크라운 전용) -->
+          <div class="drag-handle" id="dh-source"
+               data-key="source_y" data-sty="source_font_size"
+               data-min="1000" data-max="1880" data-default="1620"
+               data-nm="0" data-sc="1"
+               style="border-color:#94a3b8;top:84.4%;display:none">
+            <span class="dh-badge">
+              <span class="dh-name">출처</span>
+              <button class="sz-btn" data-sty="source_font_size" data-delta="-2">−</button>
+              <span class="sz-num" id="szn-source">40</span>pt
+              <button class="sz-btn" data-sty="source_font_size" data-delta="2">+</button>
+            </span>
+            <span class="dh-yval" id="dhv-source-y">1620</span>
+          </div>
+        </div>
+
+        <p id="source-filename-label" style="font-size:.75rem;color:var(--text-muted);text-align:center;margin-top:6px"></p>
+        <button class="btn btn-outline" id="source-refresh-btn" style="margin-top:10px;width:100%">🔄 미리보기 갱신</button>
+      </div>
+
+      <!-- 위치값 저장용 hidden inputs -->
+      <input type="hidden" id="pos-banner-h"       value="240">
+      <input type="hidden" id="pos-video-y-namnam" value="240">
+      <input type="hidden" id="pos-title-y"        value="320">
+      <input type="hidden" id="pos-video-y-silver" value="580">
+      <input type="hidden" id="pos-subtitle-y"     value="1720">
+      <input type="hidden" id="pos-source-y"       value="1620">
+      <!-- 폰트 크기 저장용 hidden inputs -->
+      <input type="hidden" id="sty-banner-size"    value="60">
+      <input type="hidden" id="sty-title-size"     value="65">
+      <input type="hidden" id="sty-subtitle-size"  value="55">
+      <input type="hidden" id="sty-source-size"    value="40">
+    </div>
+
+    <!-- ── Step 3: 대본 입력 ──────────────── -->
+    <div class="card" id="script-card">
+      <div class="card-title"><span class="icon">📝</span> 대본 입력</div>
       <textarea id="script-textarea" rows="9"
-                placeholder="생성된 대본이 여기에 표시됩니다..."></textarea>
-      <p class="mode-desc" style="margin-top:8px;margin-bottom:12px">
-        내용을 직접 수정해도 됩니다. 확인 후 아래 버튼을 누르세요.
+                placeholder="대본을 입력하세요."></textarea>
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <button class="btn btn-outline" id="upload-script-btn" style="flex:1">
+          📂 파일 업로드 (.txt/.srt)
+        </button>
+        <button class="btn btn-outline" id="download-script-btn" style="flex:1">
+          📄 스크립트 저장 (.txt)
+        </button>
+      </div>
+      <input type="file" id="script-file-input" accept=".txt,.srt" style="display:none">
+
+      <!-- TTS 토글 -->
+      <label class="toggle-label" style="margin-top:14px;display:flex;align-items:center;gap:10px">
+        <input type="checkbox" id="use-tts-toggle" checked>
+        <span class="toggle-pill"></span>
+        <span style="font-size:.9rem">TTS 음성 생성 <span style="color:var(--text-muted);font-size:.8rem">(끄면 원본 오디오 사용)</span></span>
+      </label>
+
+      <!-- 자막 토글 -->
+      <label class="toggle-label" style="margin-top:10px;display:flex;align-items:center;gap:10px">
+        <input type="checkbox" id="use-subtitle-toggle" checked>
+        <span class="toggle-pill"></span>
+        <span style="font-size:.9rem">자막 포함 <span style="color:var(--text-muted);font-size:.8rem">(끄면 자막 없이 제작)</span></span>
+      </label>
+
+      <button class="btn btn-success" id="approve-script-btn" style="margin-top:12px">🎬 제작 시작</button>
+    </div>
+
+    <!-- ── Step 3.5: 이라스토야 이미지 선택 ─── -->
+    <div class="card" id="irasutoya-card" style="display:none">
+      <div class="card-title"><span class="icon">🎨</span> 이라스토야 이미지 선택</div>
+      <p style="font-size:.82rem;color:var(--text-muted);margin-bottom:14px">
+        각 태그마다 삽입할 이미지를 선택하세요. 마음에 드는 게 없으면 키워드를 바꿔 재검색하거나 건너뛰세요.
       </p>
-      <button class="btn btn-success" id="approve-script-btn">✅ 승인 · 제작 시작</button>
-      <button class="btn btn-ghost" id="regen-script-btn" style="margin-top:8px">
-        🔄 다시 생성
+      <div id="irasutoya-tags-wrap"></div>
+      <button class="btn btn-success" id="irasutoya-confirm-btn" style="margin-top:16px;width:100%">
+        ✅ 선택 완료 후 제작 시작
       </button>
     </div>
 
@@ -205,6 +377,7 @@
       <p id="pipeline-text" style="font-size:.85rem;color:var(--text-muted);text-align:center;margin-top:8px">
         준비 중...
       </p>
+      <p id="pipeline-eta" style="display:none;font-size:.78rem;color:var(--accent);text-align:center;margin-top:2px"></p>
     </div>
 
     <!-- ── Step 4: 완성 ──────────────────────────── -->
@@ -213,6 +386,13 @@
       <a id="pipeline-download-btn" class="btn btn-success" href="#" download>
         📥 숏츠 다운로드
       </a>
+      <a id="srt-download-btn" class="btn btn-outline" href="#" download style="display:none;margin-top:8px">
+        📄 자막(SRT) 다운로드
+      </a>
+      <div id="srt-preview" style="display:none;margin-top:14px">
+        <div style="font-size:.8rem;color:var(--text-muted);margin-bottom:6px">자막 타이밍 미리보기</div>
+        <pre id="srt-content" style="background:#1a1a24;border-radius:8px;padding:12px;font-size:.78rem;color:#a0a0c0;max-height:200px;overflow-y:auto;white-space:pre-wrap;margin:0"></pre>
+      </div>
       <button class="btn btn-outline" id="pipeline-new-btn" style="margin-top:8px">
         ➕ 새 숏츠 만들기
       </button>
