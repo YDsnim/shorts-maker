@@ -4,6 +4,7 @@
 # =====================================================
 
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -115,13 +116,13 @@ def assemble_stages(voice_path: str, bg_paths,
             jobs[job_id].update({'pct': 97, 'msg': '🎨 이미지 오버레이 적용 중...'})
             _apply_irasutoya_overlays(templated, overlay_specs, duration, output_path)
         else:
-            import shutil as _sh2
-            _sh2.copy2(templated, output_path)
+
+            shutil.copy2(templated, output_path)
 
 
         if srt_save_path and use_subtitle and os.path.exists(srt_path):
-            import shutil as _shutil
-            _shutil.copy2(srt_path, srt_save_path)
+
+            shutil.copy2(srt_path, srt_save_path)
 
         jobs[job_id].update({'pct': 100, 'done': True})
 
@@ -129,7 +130,7 @@ def assemble_stages(voice_path: str, bg_paths,
         jobs[job_id].update({'done': True, 'error': str(e)})
         raise
     finally:
-        import shutil
+
         shutil.rmtree(tmp, ignore_errors=True)
 
 
@@ -163,7 +164,7 @@ def _concat_scene_clips(bg_paths: list, scenes: list,
         raise RuntimeError('모든 장면 클립 처리에 실패했습니다.')
 
     if len(scene_trimmed) == 1:
-        import shutil
+
         shutil.copy2(scene_trimmed[0], out_path)
         return
 
@@ -384,7 +385,7 @@ def _build_silver_crown_bg(bg_paths, duration: float,
 def _apply_template(subtitled: str, title: str, tpl_key: str, tmp: str, output_path: str,
                     positions: dict = None, styles: dict = None,
                     source_text: str = '') -> None:
-    import shutil as _sh
+
 
     pos = positions or {}
     sty = styles    or {}
@@ -431,8 +432,7 @@ def _apply_irasutoya_overlays(video_path: str, overlay_specs: list,
                               total_duration: float, out_path: str) -> None:
     """각 spec의 anchor 텍스트 위치 비율로 삽입 시간을 추정해 PNG 오버레이 적용."""
     if not overlay_specs:
-        import shutil as _sh3
-        _sh3.copy2(video_path, out_path)
+        shutil.copy2(video_path, out_path)
         return
 
     # anchor 텍스트를 모두 이어붙인 전체 텍스트 기준으로 비율 추정
@@ -453,8 +453,7 @@ def _apply_irasutoya_overlays(video_path: str, overlay_specs: list,
         timed.append({'path': img_path, 'start': start_t, 'dur': dur})
 
     if not timed:
-        import shutil as _sh4
-        _sh4.copy2(video_path, out_path)
+        shutil.copy2(video_path, out_path)
         return
 
     # ffmpeg filter_complex 구성

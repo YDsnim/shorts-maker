@@ -231,7 +231,6 @@ script: 위 규칙을 모두 적용한 최종 대본 전체 텍스트"""
         messages=[{'role': 'user', 'content': prompt}]
     )
 
-    print(f'[DEBUG] content blocks: {[(type(b).__name__, getattr(b, "text", "")[:80]) for b in message.content]}')
     text_block = next((b for b in message.content if hasattr(b, 'text') and b.text), None)
     if text_block is None:
         raise RuntimeError(f'Claude 응답에 텍스트 블록이 없습니다. blocks={[type(b).__name__ for b in message.content]}')

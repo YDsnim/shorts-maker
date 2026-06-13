@@ -11,6 +11,20 @@ from modules.template import (
 )
 
 
+def _load_font(size: int):
+    try:
+        return ImageFont.truetype(FONT_FILE, size)
+    except Exception:
+        return ImageFont.load_default()
+
+
+def _open_frame(frame_path: str) -> Image.Image:
+    """프레임 이미지를 열어 VIDEO_W 너비로 스케일합니다."""
+    frame = Image.open(frame_path).convert('RGBA')
+    new_h = int(frame.height * VIDEO_W / frame.width)
+    return frame.resize((VIDEO_W, new_h), Image.LANCZOS)
+
+
 def generate_banner_png(title: str, out_path: str, tpl_key: str = 'namnam',
                         styles: dict = None) -> str:
     """냠냠코기 스타일 상단 배너 PNG 생성"""
@@ -19,11 +33,7 @@ def generate_banner_png(title: str, out_path: str, tpl_key: str = 'namnam',
     banner_h  = tpl['banner_h']
     font_size = sty.get('banner_font_size', tpl['banner_font_size'])
 
-    try:
-        font = ImageFont.truetype(FONT_FILE, font_size)
-    except Exception:
-        font = ImageFont.load_default()
-
+    font = _load_font(font_size)
     img  = Image.new('RGBA', (VIDEO_W, banner_h), (*tpl['banner_bg'], 255))
     draw = ImageDraw.Draw(img)
 
@@ -55,11 +65,7 @@ def generate_title_overlay_png(title: str, out_path: str, tpl_key: str = 'silver
     max_width = tpl['title_max_width']
     title_y   = pos.get('title_y', tpl['title_y'])
 
-    try:
-        font = ImageFont.truetype(FONT_FILE, font_size)
-    except Exception:
-        font = ImageFont.load_default()
-
+    font = _load_font(font_size)
     img  = Image.new('RGBA', (VIDEO_W, VIDEO_H), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
@@ -92,11 +98,7 @@ def generate_source_overlay_png(out_path: str, tpl_key: str = 'silver_crown',
     if not text:
         return out_path
 
-    try:
-        font = ImageFont.truetype(FONT_FILE, font_size)
-    except Exception:
-        font = ImageFont.load_default()
-
+    font = _load_font(font_size)
     img  = Image.new('RGBA', (VIDEO_W, VIDEO_H), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
@@ -151,19 +153,12 @@ def _compose_namnam_preview(frame_path: str, out_path: str, title: str,
     # 단색 배경
     result = Image.new('RGBA', (VIDEO_W, VIDEO_H), (*bg_rgb, 255))
 
-    # 프레임을 가로 1080으로 스케일 (비율 유지)
-    frame = Image.open(frame_path).convert('RGBA')
-    scale = VIDEO_W / frame.width
-    new_h = int(frame.height * scale)
-    frame = frame.resize((VIDEO_W, new_h), Image.LANCZOS)
+    frame = _open_frame(frame_path)
     result.paste(frame, (0, video_y), frame)
 
     # 상단 배너 합성
     font_size = sty.get('banner_font_size', tpl['banner_font_size'])
-    try:
-        font = ImageFont.truetype(FONT_FILE, font_size)
-    except Exception:
-        font = ImageFont.load_default()
+    font = _load_font(font_size)
 
     banner = Image.new('RGBA', (VIDEO_W, banner_h), (*tpl['banner_bg'], 255))
     draw   = ImageDraw.Draw(banner)
@@ -200,23 +195,14 @@ def _compose_silver_crown_preview(frame_path: str, out_path: str, title: str,
     # 배경 PNG
     bg = Image.open(bg_png).convert('RGBA').resize((VIDEO_W, VIDEO_H), Image.LANCZOS)
 
-    # 프레임을 가로 1080 스케일
-    frame = Image.open(frame_path).convert('RGBA')
-    scale = VIDEO_W / frame.width
-    new_h = int(frame.height * scale)
-    frame = frame.resize((VIDEO_W, new_h), Image.LANCZOS)
-
-    # video_y 위치에 합성
+    frame = _open_frame(frame_path)
     bg.paste(frame, (0, video_y), frame)
 
     # 제목 텍스트
     if title:
         font_size = sty.get('title_font_size', tpl['title_font_size'])
         max_width = tpl['title_max_width']
-        try:
-            font = ImageFont.truetype(FONT_FILE, font_size)
-        except Exception:
-            font = ImageFont.load_default()
+        font = _load_font(font_size)
         draw   = ImageDraw.Draw(bg)
         lines  = _wrap_text(title, font, draw, max_width)
         bbox   = font.getbbox('가')
@@ -233,10 +219,7 @@ def _compose_silver_crown_preview(frame_path: str, out_path: str, title: str,
     if display_source:
         fs  = sty.get('source_font_size', tpl.get('source_font_size', 40))
         sy  = pos.get('source_y', tpl.get('source_y', 1620))
-        try:
-            sfont = ImageFont.truetype(FONT_FILE, fs)
-        except Exception:
-            sfont = ImageFont.load_default()
+        sfont = _load_font(fs)
         draw = ImageDraw.Draw(bg)
         lw   = draw.textlength(display_source, font=sfont)
         draw.text(((VIDEO_W - lw) / 2, sy), display_source, font=sfont, fill=(200, 200, 200, 210))
@@ -252,11 +235,7 @@ def _draw_subtitle_sample(img: Image.Image, pos: dict, sty: dict, tpl: dict) -> 
     fs       = sty.get('subtitle_font_size', tpl.get('subtitle_font_size', SUBTITLE_FONT_SIZE))
     margin_v = pos.get('subtitle_margin_v',  tpl.get('subtitle_margin_v',  SUBTITLE_MARGIN_V))
     sample   = '본문 자막위치'
-    try:
-        font = ImageFont.truetype(FONT_FILE, fs)
-    except Exception:
-        font = ImageFont.load_default()
-
+    font = _load_font(fs)
     draw   = ImageDraw.Draw(img)
     bbox   = font.getbbox('가')
     line_h = bbox[3] - bbox[1]

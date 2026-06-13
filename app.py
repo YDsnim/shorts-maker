@@ -16,7 +16,9 @@ import json
 import logging
 import os
 import re
+import shutil
 import subprocess
+import tempfile
 import threading
 import time
 import traceback
@@ -141,6 +143,13 @@ def cleanup_old_files():
             except OSError:
                 pass
 
+    # 완료된 지 60초 이상 지난 _jobs 항목 정리 (메모리 누수 방지)
+    jobs_cutoff = now - 60
+    stale = [jid for jid, j in _jobs.items()
+             if j.get('done') and j.get('finished_at', 0) < jobs_cutoff]
+    for jid in stale:
+        _jobs.pop(jid, None)
+
 
 def get_whisper_model():
     """
@@ -225,18 +234,18 @@ def _run_job_thread(cmd: list, job_id: str, duration: float,
         proc.wait()
 
         if proc.returncode == 0:
-            _jobs[job_id].update({'pct': 100, 'done': True, 'msg': '완료!'})
+            _jobs[job_id].update({'pct': 100, 'done': True, 'finished_at': time.time(), 'msg': '완료!'})
         else:
             try:
                 with open(stderr_file, 'r', encoding='utf-8', errors='replace') as f:
                     err = f.read()[-300:]
             except OSError:
                 err = ''
-            _jobs[job_id].update({'done': True, 'error': err or '처리 중 오류 발생'})
+            _jobs[job_id].update({'done': True, 'finished_at': time.time(), 'error': err or '처리 중 오류 발생'})
 
     except Exception as e:
         if job_id in _jobs:
-            _jobs[job_id].update({'done': True, 'error': str(e)})
+            _jobs[job_id].update({'done': True, 'finished_at': time.time(), 'error': str(e)})
     finally:
         for p in (progress_file, stderr_file):
             try:
@@ -581,13 +590,13 @@ def transcribe():
             with open(srt_path, 'w', encoding='utf-8') as f:
                 f.write(_to_srt(segments))
 
-            _jobs[job_id].update({'pct': 100, 'done': True, 'srt': srt_name, 'msg': '완료'})
+            _jobs[job_id].update({'pct': 100, 'done': True, 'finished_at': time.time(), 'srt': srt_name, 'msg': '완료'})
 
         except ModuleNotFoundError:
-            _jobs[job_id].update({'done': True,
+            _jobs[job_id].update({'done': True, 'finished_at': time.time(),
                                   'error': 'faster-whisper가 설치되지 않았습니다. pip install faster-whisper'})
         except Exception as e:
-            _jobs[job_id].update({'done': True, 'error': str(e)})
+            _jobs[job_id].update({'done': True, 'finished_at': time.time(), 'error': str(e)})
 
     threading.Thread(target=_run_transcribe, daemon=True).start()
     return jsonify({'ok': True, 'job_id': job_id})
@@ -753,8 +762,6 @@ def pipeline_run():
     }
 
     def _run():
-        import shutil
-        import tempfile
 
         tmp        = tempfile.mkdtemp()
         voice_path = os.path.join(tmp, 'voice.mp3')
@@ -800,7 +807,7 @@ def pipeline_run():
 
         except Exception as e:
             log_error(e)
-            _jobs[job_id].update({'done': True, 'error': str(e)})
+            _jobs[job_id].update({'done': True, 'finished_at': time.time(), 'error': str(e)})
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
