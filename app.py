@@ -446,10 +446,10 @@ def progress_stream(job_id: str):
     클라이언트가 EventSource로 이 URL을 구독하면
     {'pct': 0~100, 'done': bool, 'msg': str} 형태의 JSON을 받는다.
     완료 시 'result', 'original', 'srt' 필드도 포함된다.
-    최대 10분 후 타임아웃 메시지를 보내고 스트림을 닫는다.
+    최대 20분 후 타임아웃 메시지를 보내고 스트림을 닫는다.
     """
     def generate():
-        deadline = time.time() + 600
+        deadline = time.time() + 1200
         while time.time() < deadline:
             job = _jobs.get(job_id)
 

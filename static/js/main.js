@@ -1117,7 +1117,7 @@ async function requestTemplatePreview() {
         positions:    getPositions(),
         styles:       getStyles(),
         source_text:  getSourceText(),
-        seek_time:    parseFloat(seekSlider?.value || 3),
+        seek_time:    Math.min(parseFloat(seekSlider?.value || 3), sourceDuration || 30),
         custom_layers: customLayers,
       }),
     });
@@ -1159,7 +1159,7 @@ document.getElementById('use-tts-toggle').addEventListener('change', e => {
 const ttsSpeedSlider = document.getElementById('tts-speed-slider');
 const ttsSpeedLabel  = document.getElementById('tts-speed-label');
 ttsSpeedSlider.addEventListener('input', () => {
-  const v = parseFloat(ttsSpeedSlider.value).toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+  const v = parseFloat(ttsSpeedSlider.value || '1.0').toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
   ttsSpeedLabel.textContent = v + 'x';
 });
 
