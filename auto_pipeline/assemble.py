@@ -425,7 +425,7 @@ def _apply_template(subtitled: str, title: str, tpl_key: str, tmp: str, output_p
                 '-c:a', 'copy', '-y', output_path,
             ])
         else:
-            _sh.copy2(subtitled, output_path)
+            shutil.copy2(subtitled, output_path)
 
 
 def _apply_irasutoya_overlays(video_path: str, overlay_specs: list,
