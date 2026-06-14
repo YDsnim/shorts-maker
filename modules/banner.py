@@ -113,9 +113,11 @@ def generate_source_overlay_png(out_path: str, tpl_key: str = 'silver_crown',
 def generate_template_preview(video_path: str, out_path: str,
                               tpl_key: str = 'namnam', title: str = '',
                               positions: dict = None, styles: dict = None,
-                              source_text: str = '') -> str:
+                              source_text: str = '',
+                              text_overlays: list = None) -> str:
     """동영상 프레임에 템플릿 오버레이를 합성해 JPEG 미리보기 생성"""
-    positions = positions or {}
+    positions     = positions or {}
+    text_overlays = text_overlays or []
     frame_tmp = tempfile.mktemp(suffix='_frame.png')
     try:
         # 3초 지점 프레임 추출 → 실패 시 첫 프레임
@@ -130,9 +132,12 @@ def generate_template_preview(video_path: str, out_path: str,
             )
         if tpl_key == 'silver_crown':
             _compose_silver_crown_preview(frame_tmp, out_path, title, positions,
-                                          styles=styles, source_text=source_text)
+                                          styles=styles, source_text=source_text,
+                                          text_overlays=text_overlays)
         else:
-            _compose_namnam_preview(frame_tmp, out_path, title, positions, styles=styles)
+            _compose_namnam_preview(frame_tmp, out_path, title, positions,
+                                    styles=styles, source_text=source_text,
+                                    text_overlays=text_overlays)
     finally:
         try:
             os.unlink(frame_tmp)
@@ -142,7 +147,8 @@ def generate_template_preview(video_path: str, out_path: str,
 
 
 def _compose_namnam_preview(frame_path: str, out_path: str, title: str,
-                            positions: dict = None, styles: dict = None) -> None:
+                            positions: dict = None, styles: dict = None,
+                            source_text: str = '', text_overlays: list = None) -> None:
     tpl      = get_template('namnam')
     pos      = positions or {}
     sty      = styles    or {}
@@ -179,12 +185,25 @@ def _compose_namnam_preview(frame_path: str, out_path: str, title: str,
     # 자막 위치 샘플 텍스트
     _draw_subtitle_sample(result, pos, sty, tpl)
 
+    # 출처 텍스트 (입력된 경우)
+    if source_text:
+        src_font_size = sty.get('source_font_size', 40)
+        src_font = _load_font(src_font_size)
+        src_y    = pos.get('source_y', 1620)
+        draw     = ImageDraw.Draw(result)
+        lw       = draw.textlength(source_text, font=src_font)
+        draw.text(((VIDEO_W - lw) / 2, src_y), source_text,
+                  font=src_font, fill=(200, 200, 200, 210))
+
+    # 추가 텍스트 오버레이
+    _draw_text_overlays(result, text_overlays)
+
     result.convert('RGB').save(out_path, 'JPEG', quality=88)
 
 
 def _compose_silver_crown_preview(frame_path: str, out_path: str, title: str,
                                   positions: dict = None, styles: dict = None,
-                                  source_text: str = '') -> None:
+                                  source_text: str = '', text_overlays: list = None) -> None:
     tpl     = get_template('silver_crown')
     pos     = positions or {}
     sty     = styles    or {}
@@ -227,7 +246,54 @@ def _compose_silver_crown_preview(frame_path: str, out_path: str, title: str,
     # 자막 위치 샘플 텍스트
     _draw_subtitle_sample(bg, pos, sty, tpl)
 
+    # 추가 텍스트 오버레이
+    _draw_text_overlays(bg, text_overlays)
+
     bg.convert('RGB').save(out_path, 'JPEG', quality=88)
+
+
+def _hex_to_rgb(hex_str: str) -> tuple:
+    """#rrggbb 또는 rrggbb → (R, G, B). 파싱 실패 시 흰색."""
+    s = (hex_str or '').lstrip('#').strip()
+    if len(s) == 6:
+        try:
+            return (int(s[0:2], 16), int(s[2:4], 16), int(s[4:6], 16))
+        except ValueError:
+            pass
+    return COLOR_WHITE_RGB
+
+
+def _draw_text_overlays(img: Image.Image, text_overlays: list) -> None:
+    """추가 텍스트 오버레이들을 (x, y) 중앙 기준으로 그린다 (검정 1px 테두리 포함).
+
+    각 overlay: { text, x, y, font_size, color('#rrggbb' 또는 'rrggbb') }
+    좌표는 1080×1920 기준이며 (x, y)는 텍스트의 중앙점이다.
+    """
+    if not text_overlays:
+        return
+    draw = ImageDraw.Draw(img)
+    for ov in text_overlays:
+        text = (ov.get('text') or '').strip()
+        if not text:
+            continue
+        font_size = int(ov.get('font_size', 50) or 50)
+        cx        = int(ov.get('x', VIDEO_W // 2))
+        cy        = int(ov.get('y', VIDEO_H // 2))
+        rgb       = _hex_to_rgb(ov.get('color', 'ffffff'))
+
+        font = _load_font(font_size)
+        tw   = draw.textlength(text, font=font)
+        bbox = font.getbbox('가')
+        th   = bbox[3] - bbox[1]
+        # (cx, cy)를 텍스트 중앙으로: 좌상단 = 중앙 - 절반 (수직은 bbox top 보정)
+        x = cx - tw / 2
+        y = cy - th / 2 - bbox[1]
+
+        # 검정 테두리 1px (8방향)
+        for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1),
+                       (-1, -1), (-1, 1), (1, -1), (1, 1)):
+            draw.text((x + dx, y + dy), text, font=font, fill=(0, 0, 0))
+        draw.text((x, y), text, font=font, fill=rgb)
 
 
 def _draw_subtitle_sample(img: Image.Image, pos: dict, sty: dict, tpl: dict) -> None:
