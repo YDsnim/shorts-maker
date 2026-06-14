@@ -32,7 +32,7 @@ TTS_VOICES = {
 }
 
 # ── 파일 보관 TTL ───────────────────────────────────
-OUTPUT_TTL_SECONDS = 300    # output/ 파일 보관 시간 (5분)
+OUTPUT_TTL_SECONDS = 1800   # output/ 파일 보관 시간 (30분)
 
 # ── 미래 확장용 API 설정 (지금은 비워둠) ────────────
 CLAUDE_API_KEY = os.environ.get('CLAUDE_API_KEY', '')

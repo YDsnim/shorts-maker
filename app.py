@@ -159,7 +159,10 @@ def get_whisper_model():
     global _whisper_model
     if _whisper_model is None:
         from faster_whisper import WhisperModel
-        _whisper_model = WhisperModel('medium', device='cuda', compute_type='float32')
+        try:
+            _whisper_model = WhisperModel('medium', device='cuda', compute_type='float32')
+        except Exception:
+            _whisper_model = WhisperModel('medium', device='cpu', compute_type='int8')
     return _whisper_model
 
 
@@ -656,9 +659,10 @@ def pipeline_template_preview():
     filename    = data.get('filename', '')
     tpl_key     = data.get('template', 'namnam')
     title       = data.get('title', '')
-    positions   = data.get('positions',   {})
-    styles      = data.get('styles',      {})
-    source_text = data.get('source_text', '')
+    positions     = data.get('positions',   {})
+    styles        = data.get('styles',      {})
+    source_text   = data.get('source_text', '')
+    text_overlays = data.get('text_overlays') or []
 
     if not filename or not safe_filename(filename):
         return jsonify({'ok': False, 'error': '잘못된 파일명'}), 400
@@ -673,7 +677,8 @@ def pipeline_template_preview():
         out_path = os.path.join(config.OUTPUT_FOLDER, out_name)
         generate_template_preview(video_path, out_path, tpl_key, title,
                                   positions=positions, styles=styles,
-                                  source_text=source_text)
+                                  source_text=source_text,
+                                  text_overlays=text_overlays)
         return jsonify({'ok': True, 'preview_url': f'/download/{out_name}'})
     except Exception as e:
         log_error(e)
@@ -730,9 +735,10 @@ def pipeline_run():
     source_filename    = (data.get('source_filename') or '').strip()
     use_tts            = bool(data.get('use_tts', True))
     use_subtitle       = bool(data.get('use_subtitle', True))
-    positions          = data.get('positions')    or {}
-    styles             = data.get('styles')       or {}
-    source_text        = (data.get('source_text') or '').strip()
+    positions          = data.get('positions')     or {}
+    styles             = data.get('styles')        or {}
+    source_text        = (data.get('source_text')  or '').strip()
+    text_overlays      = data.get('text_overlays') or []
     if not script and use_tts:
         return jsonify({'ok': False, 'error': '대본이 없습니다. (TTS 끄면 대본 없어도 됩니다)'}), 400
     if not source_filename:
@@ -799,7 +805,7 @@ def pipeline_run():
                             srt_save_path=srt_path, scenes=[], title=topic, template=template,
                             use_tts=use_tts, overlay_specs=[],
                             positions=positions, styles=styles, source_text=source_text,
-                            use_subtitle=use_subtitle)
+                            use_subtitle=use_subtitle, text_overlays=text_overlays)
             _jobs[job_id].update({'srt': srt_name})
 
             # assemble_stages 내부에서 pct=100, done=True 로 설정함
@@ -813,6 +819,78 @@ def pipeline_run():
 
     threading.Thread(target=_run, daemon=True).start()
     return jsonify({'ok': True, 'job_id': job_id})
+
+
+@app.route('/proofread', methods=['POST'])
+def proofread():
+    """
+    Claude API로 대본 맞춤법·오타를 교정한다.
+    CLAUDE_API_KEY + ANTHROPIC_BASE_URL(aiprimetech 등) 환경변수를 사용한다.
+    """
+    data = request.get_json(force=True)
+    text = (data.get('text') or '').strip()
+
+    if not text:
+        return jsonify({'ok': False, 'error': '대본을 입력해주세요.'}), 400
+
+    try:
+        import auto_pipeline.config as pc
+    except Exception as e:
+        return jsonify({'ok': False, 'error': f'설정 오류: {e}'}), 500
+
+    if not pc.CLAUDE_API_KEY:
+        return jsonify({
+            'ok': False,
+            'error': 'CLAUDE_API_KEY 환경변수가 설정되지 않았습니다.',
+        }), 400
+
+    try:
+        import anthropic
+        base_url = os.environ.get('ANTHROPIC_BASE_URL')
+        client   = anthropic.Anthropic(
+            api_key=pc.CLAUDE_API_KEY,
+            **({"base_url": base_url} if base_url else {}),
+        )
+
+        prompt = (
+            "다음 한국어 대본의 맞춤법과 오타를 교정해주세요.\n\n"
+            "규칙:\n"
+            "- 맞춤법 오류, 오타, 띄어쓰기 오류만 수정하세요\n"
+            "- 문장 의미·스타일·구어체는 그대로 유지하세요\n"
+            "- 아래 JSON 형식으로만 답하세요\n\n"
+            '{"corrected":"교정된 전체 대본","changes":["변경사항1","변경사항2"]}\n\n'
+            f"대본:\n{text}"
+        )
+
+        msg = client.messages.create(
+            model='claude-haiku-4-5-20251001',
+            max_tokens=4096,
+            messages=[{"role": "user", "content": prompt}],
+        )
+
+        # 텍스트 블록 탐색 (tool_use 블록이 섞여 있을 수 있음)
+        raw = next(
+            (block.text for block in msg.content if hasattr(block, 'text')),
+            '',
+        ).strip()
+
+        if not raw:
+            return jsonify({'ok': False, 'error': 'Claude 응답이 비어 있습니다.'}), 500
+
+        # JSON 블록만 추출 (```json ... ``` 래핑 대응)
+        match = re.search(r'\{.*\}', raw, re.DOTALL)
+        try:
+            result = json.loads(match.group() if match else raw)
+            return jsonify({
+                'ok':        True,
+                'corrected': result.get('corrected', ''),
+                'changes':   result.get('changes', []),
+            })
+        except json.JSONDecodeError:
+            return jsonify({'ok': True, 'corrected': raw, 'changes': []})
+    except Exception as e:
+        log_error(e)
+        return jsonify({'ok': False, 'error': str(e)}), 500
 
 
 def _make_pipeline_name(base: str) -> str:
