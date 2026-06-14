@@ -1329,6 +1329,7 @@ approveScriptBtn.addEventListener('click', async () => {
         styles:          getStyles(),
         source_text:     getSourceText(),
         custom_layers:   customLayers,
+        text_overlays:   getTextOverlays(),
       }),
     });
     const data = await res.json();

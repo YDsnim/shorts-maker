@@ -31,11 +31,13 @@ def assemble_stages(voice_path: str, bg_paths,
                     styles: dict = None,
                     source_text: str = '',
                     use_subtitle: bool = True,
-                    custom_layers: list = None) -> None:
+                    custom_layers: list = None,
+                    text_overlays: list = None) -> None:
     tmp = tempfile.mkdtemp()
     positions     = positions     or {}
     styles        = styles        or {}
     custom_layers = custom_layers or []
+    text_overlays = text_overlays or []
 
     try:
         # ── 1. 배경 영상 준비 ────────────────────────────
@@ -439,7 +441,7 @@ def _apply_template(subtitled: str, title: str, tpl_key: str, tmp: str, output_p
             generate_banner_png(title, banner_png, 'namnam', styles=sty)
             next_path = os.path.join(tmp, 'after_banner.mp4') if custom_layers else output_path
             _run_ffmpeg([
-                'ffmpeg', '-i', cur, '-i', source_png,
+                'ffmpeg', '-i', subtitled, '-i', banner_png,
                 '-filter_complex', '[0:v][1:v]overlay=0:0',
                 '-c:a', 'copy', '-y', next_path,
             ])
