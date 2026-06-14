@@ -114,13 +114,19 @@ def assemble_stages(voice_path: str, bg_paths,
         _apply_template(subtitled, title or '', template, tmp, templated,
                         positions, styles, source_text, custom_layers)
 
-        # ── 6. 이라스토야 오버레이 ────────────────────────
+        # ── 6. 오버레이 합성 ──────────────────────────────
+        intermediate = os.path.join(tmp, 'intermediate.mp4')
         if overlay_specs:
-            jobs[job_id].update({'pct': 97, 'msg': '🎨 이미지 오버레이 적용 중...'})
-            _apply_irasutoya_overlays(templated, overlay_specs, duration, output_path)
+            jobs[job_id].update({'pct': 96, 'msg': '🎨 이미지 오버레이 적용 중...'})
+            _apply_irasutoya_overlays(templated, overlay_specs, duration, intermediate)
         else:
+            shutil.copy2(templated, intermediate)
 
-            shutil.copy2(templated, output_path)
+        if text_overlays:
+            jobs[job_id].update({'pct': 98, 'msg': '✏️ 텍스트 오버레이 적용 중...'})
+            _apply_text_overlays(intermediate, text_overlays, output_path)
+        else:
+            shutil.copy2(intermediate, output_path)
 
 
         if srt_save_path and use_subtitle and os.path.exists(srt_path):
@@ -216,7 +222,10 @@ def _get_whisper_model():
     global _whisper_model
     if _whisper_model is None:
         from faster_whisper import WhisperModel
-        _whisper_model = WhisperModel('medium', device='cuda', compute_type='float32')
+        try:
+            _whisper_model = WhisperModel('medium', device='cuda', compute_type='float32')
+        except Exception:
+            _whisper_model = WhisperModel('medium', device='cpu', compute_type='int8')
     return _whisper_model
 
 
@@ -430,7 +439,7 @@ def _apply_template(subtitled: str, title: str, tpl_key: str, tmp: str, output_p
             generate_banner_png(title, banner_png, 'namnam', styles=sty)
             next_path = os.path.join(tmp, 'after_banner.mp4') if custom_layers else output_path
             _run_ffmpeg([
-                'ffmpeg', '-i', subtitled, '-i', banner_png,
+                'ffmpeg', '-i', cur, '-i', source_png,
                 '-filter_complex', '[0:v][1:v]overlay=0:0',
                 '-c:a', 'copy', '-y', next_path,
             ])
@@ -508,6 +517,45 @@ def _apply_irasutoya_overlays(video_path: str, overlay_specs: list,
         '-map', '0:a',
         '-c:a', 'copy',
         '-y', out_path,
+    ])
+
+
+def _apply_text_overlays(input_path: str, text_overlays: list, output_path: str) -> None:
+    """사용자가 추가한 텍스트 오브젝트를 ffmpeg drawtext로 영상에 합성한다."""
+    if not text_overlays:
+        shutil.copy2(input_path, output_path)
+        return
+
+    font_path = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), '..', 'fonts', 'Pretendard-ExtraBold.otf')
+    ).replace('\\', '/')
+
+    filters = []
+    for ov in text_overlays:
+        text = (ov.get('text') or '').strip()
+        if not text:
+            continue
+        # drawtext 특수문자 이스케이프
+        text = text.replace('\\', '\\\\').replace("'", "\\'").replace(':', '\\:')
+        x     = int(ov.get('x', 540))
+        y     = int(ov.get('y', 960))
+        size  = int(ov.get('font_size', 50))
+        color = (ov.get('color') or 'ffffff').lstrip('#')
+        filters.append(
+            f"drawtext=fontfile='{font_path}':text='{text}'"
+            f":x={x}-text_w/2:y={y}-text_h/2"
+            f":fontsize={size}:fontcolor=#{color}"
+            f":borderw=4:bordercolor=black"
+        )
+
+    if not filters:
+        shutil.copy2(input_path, output_path)
+        return
+
+    _run_ffmpeg([
+        'ffmpeg', '-i', input_path,
+        '-vf', ','.join(filters),
+        '-c:a', 'copy', '-y', output_path,
     ])
 
 

@@ -68,33 +68,35 @@
 
     <!-- 영상 제목 + 템플릿 선택 -->
     <div class="card" id="topic-card">
-      <div class="card-title"><span class="icon">✏️</span> 영상 제목 입력</div>
+
+      <!-- 템플릿 선택 -->
+      <div class="card-title"><span class="icon">🎨</span> 템플릿 선택</div>
+      <div style="display:flex;gap:8px">
+        <label id="tpl-namnam" style="flex:1;display:flex;align-items:center;gap:8px;padding:10px 14px;border:1.5px solid var(--accent);border-radius:8px;cursor:pointer;background:var(--accent-bg,rgba(99,102,241,.08))">
+          <input type="radio" name="template" value="namnam" checked style="accent-color:var(--accent)">
+          <span style="font-size:.9rem;font-weight:600">냠냠코기</span>
+        </label>
+        <label id="tpl-silver" style="flex:1;display:flex;align-items:center;gap:8px;padding:10px 14px;border:1.5px solid var(--border);border-radius:8px;cursor:pointer">
+          <input type="radio" name="template" value="silver_crown" style="accent-color:var(--accent)">
+          <span style="font-size:.9rem;font-weight:600">실버크라운</span>
+        </label>
+      </div>
+
+      <!-- 영상 제목 -->
+      <div style="font-size:.8rem;color:var(--text-muted);margin:14px 0 6px">영상 제목</div>
       <input type="text" id="topic-input"
              placeholder="예: AI가 절대 못 하는 5가지 일"
              autocomplete="off" maxlength="100"
              style="width:100%;padding:10px 12px;font-size:1rem;border:1.5px solid var(--border);border-radius:8px;background:var(--input-bg);color:var(--text);box-sizing:border-box">
-      <div style="margin-top:14px">
-        <div style="font-size:.8rem;color:var(--text-muted);margin-bottom:8px">템플릿 선택</div>
-        <div style="display:flex;gap:8px">
-          <label id="tpl-namnam" style="flex:1;display:flex;align-items:center;gap:8px;padding:10px 14px;border:1.5px solid var(--accent);border-radius:8px;cursor:pointer;background:var(--accent-bg,rgba(99,102,241,.08))">
-            <input type="radio" name="template" value="namnam" checked style="accent-color:var(--accent)">
-            <span style="font-size:.9rem;font-weight:600">냠냠코기 스타일</span>
-          </label>
-          <label id="tpl-silver" style="flex:1;display:flex;align-items:center;gap:8px;padding:10px 14px;border:1.5px solid var(--border);border-radius:8px;cursor:pointer">
-            <input type="radio" name="template" value="silver_crown" style="accent-color:var(--accent)">
-            <span style="font-size:.9rem;font-weight:600">실버크라운</span>
-          </label>
-        </div>
-      </div>
 
-      <!-- 출처 텍스트 (실버크라운 선택 시 표시) -->
-      <div id="source-text-wrap" style="display:none;margin-top:12px">
-        <div style="font-size:.8rem;color:var(--text-muted);margin-bottom:6px">출처 텍스트</div>
-        <input type="text" id="source-text-input" value="출처: 실버크라운"
-               placeholder="예: 출처: 채널명"
-               style="width:100%;padding:9px 12px;font-size:.9rem;border:1.5px solid var(--border);border-radius:8px;background:var(--input-bg);color:var(--text);box-sizing:border-box">
+      <!-- 텍스트 목록 (모두 동일한 방식, 미리보기에서 위치 드래그) -->
+      <div id="text-overlay-section" style="display:none;margin-top:12px">
+        <div style="font-size:.8rem;color:var(--text-muted);margin-bottom:6px">텍스트 <span style="color:var(--text-muted);font-weight:normal">(미리보기에서 드래그로 위치 조정)</span></div>
+        <div id="text-overlay-list"></div>
+        <button class="btn btn-outline" id="add-text-overlay-btn" style="width:100%;font-size:.82rem;margin-top:4px">＋ 텍스트 추가</button>
       </div>
-    </div>
+      <!-- source-text-input: JS 호환용 hidden -->
+      <input type="hidden" id="source-text-input" value="">
 
     <!-- 레이아웃 미리보기 + 드래그 핸들 -->
     <div class="card" id="source-card">
@@ -142,7 +144,6 @@
             <span class="dh-yval" id="dhv-title-y">320</span>
           </div>
 
-          <!-- 영상 -->
           <div class="drag-handle" id="dh-video-nm"
                data-key="video_y_namnam"
                data-min="80" data-max="900" data-default="240"
@@ -176,20 +177,6 @@
             <span class="dh-yval" id="dhv-subtitle-y">1720</span>
           </div>
 
-          <!-- 출처 (실버크라운 전용) -->
-          <div class="drag-handle" id="dh-source"
-               data-key="source_y" data-sty="source_font_size"
-               data-min="1000" data-max="1880" data-default="1620"
-               data-nm="0" data-sc="1"
-               style="border-color:#94a3b8;top:84.4%;display:none">
-            <span class="dh-badge">
-              <span class="dh-name">출처</span>
-              <button class="sz-btn" data-sty="source_font_size" data-delta="-2">−</button>
-              <span class="sz-num" id="szn-source">40</span>pt
-              <button class="sz-btn" data-sty="source_font_size" data-delta="2">+</button>
-            </span>
-            <span class="dh-yval" id="dhv-source-y">1620</span>
-          </div>
         </div>
 
         <!-- 미리보기 시점 슬라이더 -->
@@ -216,7 +203,7 @@
       <input type="hidden" id="pos-video-y-silver" value="580">
       <input type="hidden" id="pos-subtitle-y"     value="1720">
       <input type="hidden" id="pos-source-y"       value="1620">
-      <!-- 폰트 크기 저장용 hidden inputs -->
+      <!-- 폰트 크기 hidden inputs -->
       <input type="hidden" id="sty-banner-size"    value="60">
       <input type="hidden" id="sty-title-size"     value="65">
       <input type="hidden" id="sty-subtitle-size"  value="55">
@@ -237,6 +224,21 @@
         </button>
       </div>
       <input type="file" id="script-file-input" accept=".txt,.srt" style="display:none">
+
+      <button class="btn btn-outline" id="proofread-btn" style="margin-top:8px;width:100%">
+        ✍️ 맞춤법 교정
+      </button>
+
+      <!-- 교정 결과 패널 -->
+      <div id="proofread-result" style="display:none;margin-top:12px;background:var(--input-bg);border:1.5px solid var(--border);border-radius:10px;padding:14px">
+        <div style="font-size:.8rem;color:var(--text-muted);margin-bottom:6px">교정 결과</div>
+        <ul id="proofread-changes" style="font-size:.82rem;color:#f59e0b;margin:0 0 10px 16px;padding:0;line-height:1.7"></ul>
+        <textarea id="proofread-corrected" rows="6" readonly
+          style="width:100%;background:#0f0f1a;border:1px solid var(--border);border-radius:8px;padding:10px;font-size:.9rem;color:var(--text);box-sizing:border-box;resize:vertical"></textarea>
+        <button class="btn btn-success" id="proofread-apply-btn" style="margin-top:10px;width:100%">
+          ✅ 교정 내용 적용
+        </button>
+      </div>
 
       <!-- TTS 토글 -->
       <label class="toggle-label" style="margin-top:14px;display:flex;align-items:center;gap:10px">
@@ -303,6 +305,8 @@
     <!-- 완성 -->
     <div class="card" id="pipeline-result-card" style="display:none">
       <div class="card-title"><span class="icon">🎉</span> 숏츠 완성!</div>
+      <video id="pipeline-result-video" controls playsinline
+             style="width:100%;max-height:400px;border-radius:10px;background:#000;display:none;margin-bottom:10px"></video>
       <a id="pipeline-download-btn" class="btn btn-success" href="#" download>
         📥 숏츠 다운로드
       </a>
