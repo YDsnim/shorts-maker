@@ -217,9 +217,9 @@ def _get_whisper_model():
     if _whisper_model is None:
         from faster_whisper import WhisperModel
         try:
-            _whisper_model = WhisperModel('medium', device='cuda', compute_type='float32')
+            _whisper_model = WhisperModel('large-v3-turbo', device='cuda', compute_type='float16')
         except Exception:
-            _whisper_model = WhisperModel('medium', device='cpu', compute_type='int8')
+            _whisper_model = WhisperModel('large-v3-turbo', device='cpu', compute_type='int8')
     return _whisper_model
 
 
