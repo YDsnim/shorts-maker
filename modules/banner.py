@@ -36,21 +36,28 @@ def _hex_to_rgb(hex_str: str) -> tuple:
     return COLOR_WHITE_RGB
 
 
-def _draw_layer_bar(img: Image.Image, text: str, y: int, font, color_rgb: tuple) -> None:
-    """가로 전체 너비 바 + 중앙 정렬 텍스트를 img에 직접 합성합니다."""
+def _draw_layer_bar(img: Image.Image, text: str, y: int, font) -> None:
+    """가로 전체 너비 바 + 첫 단어 노랑 / 나머지 흰색 (제목 스타일)"""
     draw  = ImageDraw.Draw(img)
     bbox  = font.getbbox('가')
     th    = bbox[3] - bbox[1]
     pad   = max(int(th * 0.45), 16)
     bar_h = th + pad * 2
 
-    bar = Image.new('RGBA', (VIDEO_W, bar_h), (20, 20, 20, 210))
+    bar = Image.new('RGBA', (VIDEO_W, bar_h), (17, 17, 17, 255))
     img.paste(bar, (0, y), bar)
 
-    lw = draw.textlength(text, font=font)
-    tx = (VIDEO_W - lw) / 2
+    parts       = text.split(' ', 1)
+    yellow_text = parts[0]
+    white_text  = (' ' + parts[1]) if len(parts) > 1 else ''
+
+    yw = draw.textlength(yellow_text, font=font)
+    ww = draw.textlength(white_text,  font=font) if white_text else 0
+    tx = (VIDEO_W - yw - ww) / 2
     ty = y + pad - bbox[1]
-    draw.text((tx, ty), text, font=font, fill=(*color_rgb, 255))
+
+    draw.text((tx,      ty), yellow_text, font=font, fill=(*COLOR_YELLOW_RGB, 255))
+    draw.text((tx + yw, ty), white_text,  font=font, fill=(*COLOR_WHITE_RGB,  255))
 
 
 def generate_banner_png(title: str, out_path: str, tpl_key: str = 'namnam',
@@ -113,16 +120,15 @@ def generate_title_overlay_png(title: str, out_path: str, tpl_key: str = 'silver
 
 
 def generate_custom_layers_png(layers: list, out_path: str) -> str:
-    """커스텀 텍스트 레이어를 가로줄(바) 스타일로 1080×1920 투명 PNG에 렌더링"""
+    """커스텀 텍스트 레이어를 제목 스타일(노랑+흰색) 바로 렌더링"""
     img = Image.new('RGBA', (VIDEO_W, VIDEO_H), (0, 0, 0, 0))
     for layer in layers:
         text = (layer.get('text') or '').strip()
         if not text:
             continue
-        font      = _load_font(int(layer.get('font_size', 50)))
-        y         = int(layer.get('y', 500))
-        color_rgb = _hex_to_rgb(layer.get('color') or '#FFFFFF')
-        _draw_layer_bar(img, text, y, font, color_rgb)
+        font = _load_font(int(layer.get('font_size', 50)))
+        y    = int(layer.get('y', 500))
+        _draw_layer_bar(img, text, y, font)
     img.save(out_path, 'PNG')
     return out_path
 

@@ -796,84 +796,59 @@ document.getElementById('add-text-layer-btn').addEventListener('click', () => ad
 
 function addCustomLayer(init = {}) {
   const id       = 'cl-' + (++_layerCounter);
-  const y        = init.y         || 500;
-  const fontSize = init.font_size || 50;
-  const color    = init.color     || '#ffffff';
+  const y        = init.y         ?? 960;
+  const fontSize = init.font_size ?? 50;
   const text     = init.text      || '';
 
-  customLayers.push({ id, text, y, font_size: fontSize, color });
+  customLayers.push({ id, text, y, font_size: fontSize });
 
   const container = document.getElementById('custom-layers-container');
   const card      = document.createElement('div');
   card.id         = 'layer-card-' + id;
-  card.style.cssText = 'background:var(--surface-2,#222);border:1px solid var(--border,#333);border-radius:8px;padding:10px;display:flex;flex-direction:column;gap:6px;';
+  card.style.cssText = 'background:var(--surface-2,#222);border:1px solid var(--border,#333);border-radius:8px;padding:10px;display:flex;flex-direction:column;gap:8px;';
   card.innerHTML = `
     <div style="display:flex;align-items:center;gap:6px">
-      <input type="text" placeholder="텍스트 입력" value="${text.replace(/"/g, '&quot;')}"
+      <input type="text" placeholder="첫 단어 노랑 · 나머지 흰색" value="${text.replace(/"/g, '&quot;')}"
              style="flex:1;background:var(--surface,#1a1a1a);border:1px solid var(--border,#333);border-radius:6px;padding:6px 8px;color:#fff;font-size:.9rem"
-             data-layer="${id}" class="layer-text-input">
-      <input type="color" value="${color}" data-layer="${id}" class="layer-color-input"
-             style="width:32px;height:32px;border:none;border-radius:4px;cursor:pointer;padding:2px">
-      <button data-layer="${id}" class="layer-del-btn" style="background:#c0392b;color:#fff;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:.85rem">✕</button>
+             class="layer-text-input">
+      <button class="layer-del-btn"
+              style="background:#c0392b;color:#fff;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:.85rem">✕</button>
     </div>
     <div style="display:flex;align-items:center;gap:8px">
-      <span style="font-size:.75rem;color:var(--text-muted,#888)">크기</span>
-      <button data-layer="${id}" data-delta="-2" class="layer-sz-btn" style="background:none;border:1px solid var(--border,#333);border-radius:4px;padding:2px 8px;color:#fff;cursor:pointer">−</button>
-      <span data-layer="${id}" class="layer-sz-num" style="font-size:.85rem;min-width:28px;text-align:center">${fontSize}pt</span>
-      <button data-layer="${id}" data-delta="2" class="layer-sz-btn" style="background:none;border:1px solid var(--border,#333);border-radius:4px;padding:2px 8px;color:#fff;cursor:pointer">+</button>
-      <span style="font-size:.75rem;color:var(--text-muted,#888);margin-left:8px">Y위치</span>
-      <span data-layer="${id}" class="layer-y-num" style="font-size:.85rem;color:var(--accent,#f59e0b);min-width:36px">${y}px</span>
+      <span style="font-size:.75rem;color:var(--text-muted,#888);white-space:nowrap">크기</span>
+      <button data-delta="-2" class="layer-sz-btn"
+              style="background:none;border:1px solid var(--border,#333);border-radius:4px;padding:2px 8px;color:#fff;cursor:pointer">−</button>
+      <span class="layer-sz-num" style="font-size:.85rem;min-width:28px;text-align:center">${fontSize}pt</span>
+      <button data-delta="2" class="layer-sz-btn"
+              style="background:none;border:1px solid var(--border,#333);border-radius:4px;padding:2px 8px;color:#fff;cursor:pointer">+</button>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <span style="font-size:.75rem;color:var(--text-muted,#888);white-space:nowrap">Y 위치</span>
+      <input type="range" min="0" max="1900" step="10" value="${y}"
+             class="layer-y-slider" style="flex:1">
+      <span class="layer-y-num"
+            style="font-size:.82rem;color:var(--accent,#f59e0b);min-width:44px;text-align:right">${y}px</span>
     </div>`;
   container.appendChild(card);
 
-  // 드래그 핸들을 미리보기 이미지 위에 생성
-  const wrap   = document.getElementById('preview-drag-wrap');
-  const handle = document.createElement('div');
-  handle.className     = 'drag-handle';
-  handle.id            = 'dh-layer-' + id;
-  handle.dataset.layer = id;
-  handle.style.cssText = `border-color:#60a5fa;top:${(y / 1920 * 100).toFixed(2)}%`;
-  handle.innerHTML     = `<span class="dh-badge"><span class="dh-name" style="color:#60a5fa">레이어</span></span>`;
-  wrap.appendChild(handle);
-
-  // 드래그 이벤트 연결
-  const onStart = (e) => {
-    e.preventDefault();
-    const rect = wrap.getBoundingClientRect();
-    _drag = {
-      handle,
-      key:    null,
-      layerId: id,
-      rect,
-      startY: e.touches ? e.touches[0].clientY : e.clientY,
-      startV: getLayerY(id),
-    };
-  };
-  handle.addEventListener('mousedown',  onStart);
-  handle.addEventListener('touchstart', onStart, { passive: false });
-
-  // 텍스트 입력 → 레이어 업데이트
-  card.querySelector('.layer-text-input').addEventListener('input', (e) => {
+  card.querySelector('.layer-text-input').addEventListener('input', e => {
     setLayerProp(id, 'text', e.target.value);
     debouncedPreview();
   });
-  // 색상 변경
-  card.querySelector('.layer-color-input').addEventListener('input', (e) => {
-    setLayerProp(id, 'color', e.target.value);
-    debouncedPreview();
-  });
-  // 크기 버튼
   card.querySelectorAll('.layer-sz-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      const delta = parseInt(btn.dataset.delta);
-      const cur   = getLayerProp(id, 'font_size') || 50;
-      const next  = Math.max(12, Math.min(120, cur + delta));
+      const next = Math.max(12, Math.min(120, (getLayerProp(id, 'font_size') || 50) + parseInt(btn.dataset.delta)));
       setLayerProp(id, 'font_size', next);
-      card.querySelector(`.layer-sz-num[data-layer="${id}"]`).textContent = next + 'pt';
+      card.querySelector('.layer-sz-num').textContent = next + 'pt';
       debouncedPreview();
     });
   });
-  // 삭제 버튼
+  card.querySelector('.layer-y-slider').addEventListener('input', e => {
+    const v = parseInt(e.target.value);
+    setLayerProp(id, 'y', v);
+    card.querySelector('.layer-y-num').textContent = v + 'px';
+    debouncedPreview();
+  });
   card.querySelector('.layer-del-btn').addEventListener('click', () => removeCustomLayer(id));
 
   debouncedPreview();
@@ -882,7 +857,6 @@ function addCustomLayer(init = {}) {
 function removeCustomLayer(id) {
   customLayers = customLayers.filter(l => l.id !== id);
   document.getElementById('layer-card-' + id)?.remove();
-  document.getElementById('dh-layer-' + id)?.remove();
   debouncedPreview();
 }
 
@@ -1002,32 +976,16 @@ document.addEventListener('mousemove', (e) => {
   if (!_drag) return;
   const dy = e.clientY - _drag.startY;
   const dv = (dy / _drag.rect.height) * 1920;
-  if (_drag.layerId) {
-    const v = Math.max(0, Math.min(1900, Math.round(_drag.startV + dv)));
-    setLayerProp(_drag.layerId, 'y', v);
-    _drag.handle.style.top = (v / 1920 * 100) + '%';
-    const ySpan = document.querySelector(`.layer-y-num[data-layer="${_drag.layerId}"]`);
-    if (ySpan) ySpan.textContent = v + 'px';
-  } else {
-    const v = setPosVal(_drag.key, _drag.startV + dv);
-    _drag.handle.style.top = (v / 1920 * 100) + '%';
-  }
+  const v = setPosVal(_drag.key, _drag.startV + dv);
+  _drag.handle.style.top = (v / 1920 * 100) + '%';
 });
 document.addEventListener('touchmove', (e) => {
   if (!_drag) return;
   e.preventDefault();
   const dy = e.touches[0].clientY - _drag.startY;
   const dv = (dy / _drag.rect.height) * 1920;
-  if (_drag.layerId) {
-    const v = Math.max(0, Math.min(1900, Math.round(_drag.startV + dv)));
-    setLayerProp(_drag.layerId, 'y', v);
-    _drag.handle.style.top = (v / 1920 * 100) + '%';
-    const ySpan = document.querySelector(`.layer-y-num[data-layer="${_drag.layerId}"]`);
-    if (ySpan) ySpan.textContent = v + 'px';
-  } else {
-    const v = setPosVal(_drag.key, _drag.startV + dv);
-    _drag.handle.style.top = (v / 1920 * 100) + '%';
-  }
+  const v = setPosVal(_drag.key, _drag.startV + dv);
+  _drag.handle.style.top = (v / 1920 * 100) + '%';
 }, { passive: false });
 
 document.addEventListener('mouseup',  () => { if (_drag) { _drag = null; debouncedPreview(); } });
@@ -1212,7 +1170,7 @@ async function checkPipelineConfig() {
   try {
     const res  = await fetch('/pipeline/check-config');
     const data = await res.json();
-    apiWarning.style.display = 'none';
+    apiWarning.style.display = data.ok ? 'none' : '';
   } catch { /* 네트워크 오류는 무시 */ }
 }
 
@@ -1442,7 +1400,6 @@ pipelineNewBtn.addEventListener('click', () => {
   // ── 커스텀 레이어 초기화 ──
   customLayers = [];
   document.getElementById('custom-layers-container').innerHTML = '';
-  document.querySelectorAll('[id^="dh-layer-"]').forEach(el => el.remove());
 
   // ── 토글 초기화 ──
   document.getElementById('use-tts-toggle').checked      = true;

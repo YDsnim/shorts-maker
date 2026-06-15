@@ -877,7 +877,7 @@ def proofread():
         )
 
         msg = client.messages.create(
-            model='claude-haiku-4-5-20251001',
+            model=pc.CLAUDE_MODEL,
             max_tokens=4096,
             messages=[{"role": "user", "content": prompt}],
         )
