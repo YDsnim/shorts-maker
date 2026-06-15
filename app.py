@@ -587,7 +587,14 @@ def transcribe():
             model = get_whisper_model()
 
             _jobs[job_id].update({'msg': '음성 인식 중... (2/3)', 'pct': 30})
-            segments, _ = model.transcribe(_path, language='ko')
+            segments, _ = model.transcribe(
+                _path, language='ko',
+                vad_filter=True,
+                vad_parameters={'min_silence_duration_ms': 300},
+                condition_on_previous_text=False,
+                no_speech_threshold=0.6,
+                initial_prompt='안녕하세요.',
+            )
             segments = list(segments)
 
             _jobs[job_id].update({'msg': 'SRT 저장 중... (3/3)', 'pct': 90})

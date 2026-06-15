@@ -241,6 +241,9 @@ def _generate_subtitles(voice_path: str, ass_path: str,
         voice_path, language='ko',
         vad_filter=True,
         vad_parameters={'min_silence_duration_ms': 300},
+        condition_on_previous_text=False,
+        no_speech_threshold=0.6,
+        initial_prompt='안녕하세요.',
     )
     seg_list = list(segments)
 
