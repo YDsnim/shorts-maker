@@ -89,14 +89,6 @@
              autocomplete="off" maxlength="100"
              style="width:100%;padding:10px 12px;font-size:1rem;border:1.5px solid var(--border);border-radius:8px;background:var(--input-bg);color:var(--text);box-sizing:border-box">
 
-      <!-- 텍스트 목록 (모두 동일한 방식, 미리보기에서 위치 드래그) -->
-      <div id="text-overlay-section" style="display:none;margin-top:12px">
-        <div style="font-size:.8rem;color:var(--text-muted);margin-bottom:6px">텍스트 <span style="color:var(--text-muted);font-weight:normal">(미리보기에서 드래그로 위치 조정)</span></div>
-        <div id="text-overlay-list"></div>
-        <button class="btn btn-outline" id="add-text-overlay-btn" style="width:100%;font-size:.82rem;margin-top:4px">＋ 텍스트 추가</button>
-      </div>
-      <!-- source-text-input: JS 호환용 hidden -->
-      <input type="hidden" id="source-text-input" value="">
 
     <!-- 레이아웃 미리보기 + 드래그 핸들 -->
     <div class="card" id="source-card">
@@ -207,7 +199,6 @@
       <input type="hidden" id="sty-banner-size"    value="60">
       <input type="hidden" id="sty-title-size"     value="65">
       <input type="hidden" id="sty-subtitle-size"  value="55">
-      <input type="hidden" id="sty-source-size"    value="40">
     </div>
 
     <!-- 대본 + 음성 설정 -->

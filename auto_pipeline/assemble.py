@@ -29,15 +29,12 @@ def assemble_stages(voice_path: str, bg_paths,
                     overlay_specs: list = None,
                     positions: dict = None,
                     styles: dict = None,
-                    source_text: str = '',
                     use_subtitle: bool = True,
-                    custom_layers: list = None,
-                    text_overlays: list = None) -> None:
+                    custom_layers: list = None) -> None:
     tmp = tempfile.mkdtemp()
     positions     = positions     or {}
     styles        = styles        or {}
     custom_layers = custom_layers or []
-    text_overlays = text_overlays or []
 
     try:
         # ── 1. 배경 영상 준비 ────────────────────────────
@@ -114,7 +111,7 @@ def assemble_stages(voice_path: str, bg_paths,
         jobs[job_id].update({'pct': 94, 'msg': '🎨 템플릿 합성 중...'})
         templated = os.path.join(tmp, 'templated.mp4')
         _apply_template(subtitled, title or '', template, tmp, templated,
-                        positions, styles, source_text, custom_layers)
+                        positions, styles, custom_layers)
 
         # ── 6. 오버레이 합성 ──────────────────────────────
         intermediate = os.path.join(tmp, 'intermediate.mp4')
@@ -124,12 +121,7 @@ def assemble_stages(voice_path: str, bg_paths,
         else:
             shutil.copy2(templated, intermediate)
 
-        if text_overlays:
-            jobs[job_id].update({'pct': 98, 'msg': '✏️ 텍스트 오버레이 적용 중...'})
-            _apply_text_overlays(intermediate, text_overlays, output_path)
-        else:
-            shutil.copy2(intermediate, output_path)
-
+        shutil.copy2(intermediate, output_path)
 
         if srt_save_path and use_subtitle and os.path.exists(srt_path):
 

@@ -1067,10 +1067,6 @@ function getStyles() {
   };
 }
 
-function getSourceText() {
-  return document.getElementById('source-text-input')?.value?.trim() || '';
-}
-
 // ── 템플릿 전환 ──────────────────────────────────────
 function applyTemplateSwitch(tpl) {
   const isSilver = tpl === 'silver_crown';
@@ -1088,11 +1084,6 @@ document.querySelectorAll('input[name="template"]').forEach(radio => {
     applyTemplateSwitch(radio.value);
     if (sourceFilename) requestTemplatePreview();
   });
-});
-
-// 출처 텍스트 변경 → 갱신
-document.getElementById('source-text-input')?.addEventListener('input', () => {
-  if (sourceFilename) debouncedPreview();
 });
 
 let previewDebounce = null;
@@ -1116,7 +1107,6 @@ async function requestTemplatePreview() {
         title,
         positions:    getPositions(),
         styles:       getStyles(),
-        source_text:  getSourceText(),
         seek_time:    Math.min(parseFloat(seekSlider?.value || 3), sourceDuration || 30),
         custom_layers: customLayers,
       }),
@@ -1327,9 +1317,7 @@ approveScriptBtn.addEventListener('click', async () => {
         tts_speed:       parseFloat(document.getElementById('tts-speed-slider')?.value || 1.0),
         positions:       getPositions(),
         styles:          getStyles(),
-        source_text:     getSourceText(),
         custom_layers:   customLayers,
-        text_overlays:   getTextOverlays(),
       }),
     });
     const data = await res.json();
@@ -1462,10 +1450,6 @@ pipelineNewBtn.addEventListener('click', () => {
   document.getElementById('custom-layers-container').innerHTML = '';
   document.querySelectorAll('[id^="dh-layer-"]').forEach(el => el.remove());
 
-  // ── 출처 텍스트 초기화 ──
-  const srcTxt = document.getElementById('source-text-input');
-  if (srcTxt) srcTxt.value = '';
-
   // ── 토글 초기화 ──
   document.getElementById('use-tts-toggle').checked      = true;
   document.getElementById('use-subtitle-toggle').checked = true;
@@ -1558,180 +1542,6 @@ document.getElementById('proofread-apply-btn').addEventListener('click', () => {
   document.getElementById('proofread-result').style.display = 'none';
   showToast('교정 내용이 적용됐습니다.', 'success');
 });
-
-/* ====================================================
-   텍스트 오버레이 — 추가·삭제·드래그·수집
-   ==================================================== */
-let textOverlays = [];
-
-function addTextOverlay() {
-  const n  = textOverlays.length + 1;
-  const id = 'tov_' + Date.now();
-  const ov = { id, n, text: '', x: 540, y: Math.round(960 + (n - 1) * 120), font_size: 50, color: '#ffffff' };
-  textOverlays.push(ov);
-  _renderTovCard(ov);
-  _renderTovHandle(ov);
-}
-
-function removeTextOverlay(id) {
-  textOverlays = textOverlays.filter(o => o.id !== id);
-  document.getElementById('tov-card-' + id)?.remove();
-  const handle = document.getElementById('tov-handle-' + id);
-  if (handle) {
-    handle._tovAbort?.abort();
-    handle.remove();
-  }
-  if (sourceFilename) debouncedPreview();
-}
-
-function updateTextOverlay(id, field, value) {
-  const ov = textOverlays.find(o => o.id === id);
-  if (!ov) return;
-  ov[field] = value;
-  const handle = document.getElementById('tov-handle-' + id);
-  if (handle) {
-    if (field === 'text') {
-      handle.querySelector('.tov-label').textContent = value || ('텍스트 ' + ov.n);
-    }
-    if (field === 'color') {
-      handle.style.borderTopColor = value;
-      handle.querySelector('.tov-label').style.color = value;
-    }
-  }
-  if (sourceFilename) debouncedPreview();
-}
-
-function changeTovSize(id, delta) {
-  const ov = textOverlays.find(o => o.id === id);
-  if (!ov) return;
-  ov.font_size = Math.max(12, Math.min(200, ov.font_size + delta));
-  const el = document.getElementById('tov-size-' + id);
-  if (el) el.value = ov.font_size;
-  if (sourceFilename) debouncedPreview();
-}
-
-function _renderTovCard(ov) {
-  const div = document.createElement('div');
-  div.id = 'tov-card-' + ov.id;
-  div.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:6px';
-
-  const num = document.createElement('span');
-  num.textContent = '텍스트 ' + ov.n;
-  num.style.cssText = 'font-size:.8rem;color:var(--text-muted);min-width:52px;flex-shrink:0';
-
-  const textInput = document.createElement('input');
-  textInput.type = 'text';
-  textInput.value = ov.text;
-  textInput.placeholder = '내용 입력';
-  textInput.style.cssText = 'flex:1;padding:8px 10px;font-size:.88rem;border:1.5px solid var(--border);border-radius:7px;background:var(--input-bg);color:var(--text);min-width:0';
-  textInput.addEventListener('input', () => updateTextOverlay(ov.id, 'text', textInput.value));
-
-  const colorInput = document.createElement('input');
-  colorInput.type = 'color';
-  colorInput.value = ov.color;
-  colorInput.title = '색상';
-  colorInput.style.cssText = 'width:30px;height:30px;border:none;padding:0;cursor:pointer;border-radius:5px;flex-shrink:0';
-  colorInput.addEventListener('change', () => updateTextOverlay(ov.id, 'color', colorInput.value));
-
-  const mkBtn = ch => {
-    const b = document.createElement('button');
-    b.textContent = ch;
-    b.style.cssText = 'padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:transparent;color:var(--text);cursor:pointer;font-size:.82rem;flex-shrink:0';
-    return b;
-  };
-  const minusBtn = mkBtn('−');
-  minusBtn.addEventListener('click', () => changeTovSize(ov.id, -2));
-
-  const sizeInput = document.createElement('input');
-  sizeInput.type = 'number';
-  sizeInput.id = 'tov-size-' + ov.id;
-  sizeInput.value = ov.font_size;
-  sizeInput.min = 12;
-  sizeInput.max = 200;
-  sizeInput.style.cssText = 'width:46px;padding:5px 4px;font-size:.82rem;border:1px solid var(--border);border-radius:5px;background:var(--input-bg);color:var(--text);text-align:center;flex-shrink:0';
-  sizeInput.addEventListener('change', () => {
-    const v = Math.max(12, Math.min(200, parseInt(sizeInput.value) || 50));
-    sizeInput.value = v;
-    const ov2 = textOverlays.find(o => o.id === ov.id);
-    if (ov2) { ov2.font_size = v; if (sourceFilename) debouncedPreview(); }
-  });
-
-  const plusBtn = mkBtn('+');
-  plusBtn.addEventListener('click', () => changeTovSize(ov.id, 2));
-
-  const delBtn = document.createElement('button');
-  delBtn.textContent = '✕';
-  delBtn.style.cssText = 'padding:5px 8px;border:none;background:transparent;color:#f87171;cursor:pointer;font-size:.88rem;flex-shrink:0';
-  delBtn.addEventListener('click', () => removeTextOverlay(ov.id));
-
-  div.append(num, textInput, colorInput, minusBtn, sizeInput, plusBtn, delBtn);
-  document.getElementById('text-overlay-list').appendChild(div);
-}
-
-function _renderTovHandle(ov) {
-  const wrap = document.getElementById('preview-drag-wrap');
-  if (!wrap) return;
-  const el = document.createElement('div');
-  el.id = 'tov-handle-' + ov.id;
-  el.className = 'drag-handle';
-  el.style.borderTopColor = ov.color;
-  el.style.top = (ov.y / 1920 * 100) + '%';
-
-  const badge = document.createElement('span');
-  badge.className = 'dh-badge';
-  const label = document.createElement('span');
-  label.className = 'dh-name tov-label';
-  label.textContent = ov.text || ('텍스트 ' + ov.n);
-  label.style.color = ov.color;
-  badge.appendChild(label);
-  el.appendChild(badge);
-
-  wrap.appendChild(el);
-  _addTovDrag(el, ov);
-}
-
-function _addTovDrag(el, ov) {
-  const ac     = new AbortController();
-  const signal = ac.signal;
-  el._tovAbort = ac;
-
-  let active = false, moved = false, sy, oy;
-  const start = e => {
-    if (e.target.classList.contains('sz-btn')) return;
-    active = true; moved = false;
-    const pt = e.touches ? e.touches[0] : e;
-    sy = pt.clientY; oy = ov.y;
-    e.preventDefault(); e.stopPropagation();
-  };
-  const move = e => {
-    if (!active) return;
-    e.preventDefault();
-    moved = true;
-    const pt   = e.touches ? e.touches[0] : e;
-    const rect = document.getElementById('preview-drag-wrap').getBoundingClientRect();
-    ov.y = Math.round(Math.max(0, Math.min(1920, oy + (pt.clientY - sy) / rect.height * 1920)));
-    el.style.top = (ov.y / 1920 * 100) + '%';
-  };
-  const end = () => {
-    if (!active) return;
-    active = false;
-    if (moved && sourceFilename) debouncedPreview();
-  };
-  el.addEventListener('mousedown',  start, { signal });
-  el.addEventListener('touchstart', start, { passive: false, signal });
-  document.addEventListener('mousemove',  move, { signal });
-  document.addEventListener('touchmove',  move, { passive: false, signal });
-  document.addEventListener('mouseup',    end,  { signal });
-  document.addEventListener('touchend',   end,  { signal });
-}
-
-function getTextOverlays() {
-  return textOverlays
-    .filter(o => o.text.trim())
-    .map(o => ({ text: o.text.trim(), x: o.x, y: o.y, font_size: o.font_size, color: o.color.replace('#', '') }));
-}
-
-document.getElementById('add-text-overlay-btn').addEventListener('click', addTextOverlay);
 
 /* 템플릿 라디오 버튼 — 선택된 항목 테두리 강조 */
 document.querySelectorAll('input[name="template"]').forEach(radio => {

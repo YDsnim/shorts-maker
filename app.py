@@ -752,9 +752,7 @@ def pipeline_run():
     use_subtitle       = bool(data.get('use_subtitle', True))
     positions          = data.get('positions')    or {}
     styles             = data.get('styles')       or {}
-    source_text        = (data.get('source_text') or '').strip()
     custom_layers      = data.get('custom_layers') or []
-    text_overlays      = data.get('text_overlays') or []
     tts_voice          = (data.get('tts_voice') or 'ko-KR-Neural2-C').strip()
     tts_speed          = max(0.25, min(4.0, float(data.get('tts_speed') or 1.0)))
     if not script and use_tts:
@@ -822,9 +820,8 @@ def pipeline_run():
             assemble_stages(voice_path, bg_paths, result_path, duration, _jobs, job_id,
                             srt_save_path=srt_path, scenes=[], title=topic, template=template,
                             use_tts=use_tts, overlay_specs=[],
-                            positions=positions, styles=styles, source_text=source_text,
-                            use_subtitle=use_subtitle, custom_layers=custom_layers,
-                            text_overlays=text_overlays)
+                            positions=positions, styles=styles,
+                            use_subtitle=use_subtitle, custom_layers=custom_layers)
             _jobs[job_id].update({'srt': srt_name})
 
             # assemble_stages 내부에서 pct=100, done=True 로 설정함
