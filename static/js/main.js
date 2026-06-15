@@ -906,7 +906,6 @@ const POS_INPUT = {
   title_y:        'pos-title-y',
   video_y_silver: 'pos-video-y-silver',
   subtitle_y:     'pos-subtitle-y',
-  source_y:       'pos-source-y',
 };
 // data-key → y값 표시 span ID
 const POS_YSPAN = {
@@ -915,20 +914,17 @@ const POS_YSPAN = {
   title_y:        'dhv-title-y',
   video_y_silver: 'dhv-video-y-sc',
   subtitle_y:     'dhv-subtitle-y',
-  source_y:       'dhv-source-y',
 };
 // data-sty → hidden input ID / 표시 span ID
 const STY_INPUT = {
   banner_font_size:   'sty-banner-size',
   title_font_size:    'sty-title-size',
   subtitle_font_size: 'sty-subtitle-size',
-  source_font_size:   'sty-source-size',
 };
 const STY_SPAN = {
   banner_font_size:   'szn-banner',
   title_font_size:    'szn-title',
   subtitle_font_size: 'szn-subtitle',
-  source_font_size:   'szn-source',
 };
 
 function posVal(key) {
@@ -1046,7 +1042,6 @@ function getPositions() {
     return {
       title_y:          posVal('title_y'),
       video_y:          posVal('video_y_silver'),
-      source_y:         posVal('source_y'),
       subtitle_margin_v: sub_margin,
     };
   } else {
@@ -1063,7 +1058,6 @@ function getStyles() {
     banner_font_size:   styVal('banner_font_size'),
     title_font_size:    styVal('title_font_size'),
     subtitle_font_size: styVal('subtitle_font_size'),
-    source_font_size:   styVal('source_font_size'),
   };
 }
 
@@ -1465,7 +1459,7 @@ pipelineNewBtn.addEventListener('click', () => {
   // ── 위치 핸들 기본값 초기화 ──
   const posDefaults = {
     banner_h: 240, video_y_namnam: 240, title_y: 320,
-    video_y_silver: 580, subtitle_y: 1720, source_y: 1620,
+    video_y_silver: 580, subtitle_y: 1720,
   };
   Object.entries(posDefaults).forEach(([key, v]) => {
     const inp = document.getElementById(POS_INPUT[key]);
@@ -1473,7 +1467,7 @@ pipelineNewBtn.addEventListener('click', () => {
     const sp  = document.getElementById(POS_YSPAN[key]);
     if (sp)  sp.textContent = v;
   });
-  Object.entries({ banner_font_size: 60, title_font_size: 65, subtitle_font_size: 55, source_font_size: 40 })
+  Object.entries({ banner_font_size: 60, title_font_size: 65, subtitle_font_size: 55 })
     .forEach(([key, v]) => setStyVal(key, v));
 
   // ── 업로드 드롭존 초기화 ──

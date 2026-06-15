@@ -674,7 +674,6 @@ def pipeline_template_preview():
     title         = data.get('title', '')
     positions     = data.get('positions',     {})
     styles        = data.get('styles',        {})
-    source_text   = data.get('source_text',   '')
     seek_time     = max(0.0, float(data.get('seek_time', 3)))
     custom_layers = data.get('custom_layers', [])
 
@@ -691,7 +690,6 @@ def pipeline_template_preview():
         out_path = os.path.join(config.OUTPUT_FOLDER, out_name)
         generate_template_preview(video_path, out_path, tpl_key, title,
                                   positions=positions, styles=styles,
-                                  source_text=source_text,
                                   seek_time=seek_time,
                                   custom_layers=custom_layers)
         return jsonify({'ok': True, 'preview_url': f'/download/{out_name}'})
