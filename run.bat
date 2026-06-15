@@ -10,6 +10,14 @@ python -c "import flask" 2>nul || (
     pip install -r requirements.txt
 )
 
+:: Whisper medium 모델 자동 삭제 (large-v3-turbo로 교체됨)
+set MEDIUM_PATH=%USERPROFILE%\.cache\huggingface\hub\models--Systran--faster-whisper-medium
+if exist "%MEDIUM_PATH%" (
+    echo  Whisper medium 모델 삭제 중...
+    rmdir /s /q "%MEDIUM_PATH%"
+    echo  삭제 완료.
+)
+
 :: 앱 실행
 python app.py
 pause

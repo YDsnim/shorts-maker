@@ -14,6 +14,7 @@
 // ── 전역 상태 ────────────────────────────────────────
 let uploadedFilename = null;   // 서버 UUID 파일명 (예: a3f9c1d2.mp4)
 let originalBase     = null;   // 결과 파일명에 쓸 원본 베이스 (예: '여름휴가')
+let _uploadInfo      = {};     // 업로드 완료 후 저장한 video info {width, height, duration, ...}
 let videoDim = { w: 0, h: 0 }; // 실제 영상 픽셀 크기 (크롭 좌표 계산 기준)
 let cropPx   = { x: 0, y: 0, w: 0, h: 0 };  // 크롭 영역 (픽셀 단위)
 let bgMode   = 'none';         // 배경 처리 모드: 'none' | 'blur' | 'solid'
@@ -73,12 +74,11 @@ fileInput.addEventListener('change', () => { if (fileInput.files[0]) uploadFile(
 function uploadFile(file) {
   if (file.size > 500 * 1024 * 1024) { showToast('파일이 500MB를 초과합니다.', 'error'); return; }
 
-  // 새 파일 선택 시 이전 편집 상태 즉시 초기화
-  editCard.style.display    = 'none';
-  actionCard.style.display  = 'none';
+  // 새 파일 선택 시 이전 상태 초기화
+  document.getElementById('mode-select-card').style.display  = 'none';
+  document.getElementById('narration-section').style.display = 'none';
+  document.getElementById('crop-section').style.display      = 'none';
   previewWrap.style.display = 'none';
-  progressSec.style.display = 'none';
-  resultSec.style.display   = 'none';
   cropPx = { x: 0, y: 0, w: 0, h: 0 };
 
   dropZone.innerHTML = `<strong>업로드 중... 0%</strong><p>${file.name}</p>`;
@@ -108,23 +108,28 @@ function uploadFile(file) {
 
     uploadedFilename = data.filename;
     originalBase     = data.original_base || 'video';
+    _uploadInfo      = data.info || {};
+
+    // 내레이션 모드에서도 같은 파일 사용
+    sourceFilename = data.filename;
+    sourceDuration = _uploadInfo.duration || 0;
 
     dropZone.innerHTML = `
       <strong>✅ ${file.name}</strong>
       <p style="color:var(--success)">업로드 완료 · 다시 클릭하면 교체</p>
     `;
 
-    const info = data.info || {};
+    const info = _uploadInfo;
     if (info.width) {
       document.getElementById('video-info').style.display = 'flex';
       document.getElementById('video-info').innerHTML =
         `해상도 <span>${info.width}×${info.height}</span> &nbsp; 길이 <span>${info.duration_str}</span>`;
     }
 
-    sourceFilename = uploadedFilename;
-    sourceFilenameLabel.textContent = file.name;
-    document.getElementById('mode-tabs').style.display = '';
-    initCropUI(data.filename, info);
+    // 업로드 후 모드 선택 카드 표시
+    document.getElementById('mode-select-card').style.display = 'block';
+    document.getElementById('narration-section').style.display = 'none';
+    document.getElementById('crop-section').style.display      = 'none';
     showToast('업로드 완료!', 'success');
   };
 
@@ -606,12 +611,11 @@ async function fetchYoutube() {
   ytBtn.disabled    = true;
   ytBtn.textContent = '⏳ 다운로드 중...';
 
-  // 새 영상 다운로드 시작 시 이전 편집 상태 즉시 초기화
-  editCard.style.display    = 'none';
-  actionCard.style.display  = 'none';
+  // 새 영상 다운로드 시작 시 이전 상태 초기화
+  document.getElementById('mode-select-card').style.display  = 'none';
+  document.getElementById('narration-section').style.display = 'none';
+  document.getElementById('crop-section').style.display      = 'none';
   previewWrap.style.display = 'none';
-  progressSec.style.display = 'none';
-  resultSec.style.display   = 'none';
   cropPx = { x: 0, y: 0, w: 0, h: 0 };
 
   dropZone.innerHTML = `<strong>YouTube 영상 다운로드 중...</strong><p>${url}</p>`;
@@ -628,11 +632,11 @@ async function fetchYoutube() {
 
     uploadedFilename = data.filename;
     originalBase     = data.original_base || 'video';
-    sourceFilename   = uploadedFilename;
-    sourceFilenameLabel.textContent = data.original_base || '영상';
-    document.getElementById('mode-tabs').style.display = '';
+    _uploadInfo      = data.info || {};
+    sourceFilename   = data.filename;
+    sourceDuration   = _uploadInfo.duration || 0;
 
-    const info = data.info || {};
+    const info = _uploadInfo;
     if (info.width) {
       document.getElementById('video-info').style.display = 'flex';
       document.getElementById('video-info').innerHTML =
@@ -642,14 +646,11 @@ async function fetchYoutube() {
     dropZone.innerHTML = `
       <strong>✅ ${data.original_base}</strong>
       <p style="color:var(--success)">${info.duration_str ? info.duration_str + ' · ' : ''}${info.width ? info.width + '×' + info.height : ''}</p>
-      <button class="btn" id="go-edit-btn" style="margin-top:12px">✂️ 편집 시작</button>
-      <p style="font-size:.8rem;color:var(--muted);margin-top:6px">다른 영상으로 교체하려면 파일을 업로드하거나 URL을 다시 입력하세요</p>
     `;
-    document.getElementById('go-edit-btn').addEventListener('click', e => {
-      e.stopPropagation();
-      switchTab('edit');
-      initCropUI(data.filename, info);
-    });
+
+    document.getElementById('mode-select-card').style.display  = 'block';
+    document.getElementById('narration-section').style.display = 'none';
+    document.getElementById('crop-section').style.display      = 'none';
 
     showToast('YouTube 영상 준비 완료!', 'success');
     ytUrl.value = '';
@@ -741,26 +742,158 @@ function showToast(msg, type = '') {
 checkPipelineConfig();
 
 /* ====================================================
-   탭 전환
+   모드 선택 버튼
+   ==================================================== */
+document.getElementById('mode-btn-narration').addEventListener('click', () => {
+  document.getElementById('mode-select-card').style.display = 'none';
+  document.getElementById('narration-section').style.display = 'block';
+
+  // 슬라이더 최대값 업데이트
+  if (sourceDuration > 0) {
+    seekSlider.max   = Math.floor(sourceDuration);
+    seekSlider.value = Math.min(3, Math.floor(sourceDuration));
+    seekLabel.textContent = parseFloat(seekSlider.value).toFixed(1) + 's';
+  }
+  sourceFilenameLabel.textContent = originalBase || '';
+
+  // 미리보기 자동 생성
+  document.getElementById('source-preview-loading').style.display = 'block';
+  document.getElementById('source-preview-wrap').style.display    = 'none';
+  requestTemplatePreview();
+  document.getElementById('upload-card').scrollIntoView({ behavior: 'smooth' });
+});
+
+document.getElementById('mode-btn-crop').addEventListener('click', () => {
+  document.getElementById('mode-select-card').style.display = 'none';
+  document.getElementById('crop-section').style.display     = 'block';
+  initCropUI(uploadedFilename, _uploadInfo);
+});
+
+/* ====================================================
+   메인 소스 영상 업로드 + 템플릿 미리보기
    ==================================================== */
 let sourceFilename = null;
+let sourceDuration = 0;
 
-const sourcePreviewWrap   = document.getElementById('source-preview-wrap');
-const sourcePreviewImg    = document.getElementById('source-preview-img');
+const sourcePreviewWrap = document.getElementById('source-preview-wrap');
+const sourcePreviewImg  = document.getElementById('source-preview-img');
 const sourceFilenameLabel = document.getElementById('source-filename-label');
 const sourceRefreshBtn    = document.getElementById('source-refresh-btn');
 
-function switchTab(name) {
-  const isEdit = name === 'edit';
-  document.getElementById('tab-edit-section').style.display   = isEdit ? '' : 'none';
-  document.getElementById('tab-create-section').style.display = isEdit ? 'none' : '';
-  document.getElementById('tab-btn-edit').className   = 'btn ' + (isEdit ? 'btn-primary' : 'btn-outline');
-  document.getElementById('tab-btn-create').className = 'btn ' + (isEdit ? 'btn-outline' : 'btn-primary');
-  if (!isEdit && sourceFilename) requestTemplatePreview();
+// ── 미리보기 시점 슬라이더 ──────────────────────────
+const seekSlider = document.getElementById('preview-seek-slider');
+const seekLabel  = document.getElementById('preview-seek-label');
+seekSlider.addEventListener('input', () => {
+  seekLabel.textContent = parseFloat(seekSlider.value).toFixed(1) + 's';
+  debouncedPreview();
+});
+
+// ── 커스텀 텍스트 레이어 ────────────────────────────
+let customLayers  = [];
+let _layerCounter = 0;
+
+document.getElementById('add-text-layer-btn').addEventListener('click', () => addCustomLayer());
+
+function addCustomLayer(init = {}) {
+  const id       = 'cl-' + (++_layerCounter);
+  const y        = init.y         || 500;
+  const fontSize = init.font_size || 50;
+  const color    = init.color     || '#ffffff';
+  const text     = init.text      || '';
+
+  customLayers.push({ id, text, y, font_size: fontSize, color });
+
+  const container = document.getElementById('custom-layers-container');
+  const card      = document.createElement('div');
+  card.id         = 'layer-card-' + id;
+  card.style.cssText = 'background:var(--surface-2,#222);border:1px solid var(--border,#333);border-radius:8px;padding:10px;display:flex;flex-direction:column;gap:6px;';
+  card.innerHTML = `
+    <div style="display:flex;align-items:center;gap:6px">
+      <input type="text" placeholder="텍스트 입력" value="${text.replace(/"/g, '&quot;')}"
+             style="flex:1;background:var(--surface,#1a1a1a);border:1px solid var(--border,#333);border-radius:6px;padding:6px 8px;color:#fff;font-size:.9rem"
+             data-layer="${id}" class="layer-text-input">
+      <input type="color" value="${color}" data-layer="${id}" class="layer-color-input"
+             style="width:32px;height:32px;border:none;border-radius:4px;cursor:pointer;padding:2px">
+      <button data-layer="${id}" class="layer-del-btn" style="background:#c0392b;color:#fff;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:.85rem">✕</button>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <span style="font-size:.75rem;color:var(--text-muted,#888)">크기</span>
+      <button data-layer="${id}" data-delta="-2" class="layer-sz-btn" style="background:none;border:1px solid var(--border,#333);border-radius:4px;padding:2px 8px;color:#fff;cursor:pointer">−</button>
+      <span data-layer="${id}" class="layer-sz-num" style="font-size:.85rem;min-width:28px;text-align:center">${fontSize}pt</span>
+      <button data-layer="${id}" data-delta="2" class="layer-sz-btn" style="background:none;border:1px solid var(--border,#333);border-radius:4px;padding:2px 8px;color:#fff;cursor:pointer">+</button>
+      <span style="font-size:.75rem;color:var(--text-muted,#888);margin-left:8px">Y위치</span>
+      <span data-layer="${id}" class="layer-y-num" style="font-size:.85rem;color:var(--accent,#f59e0b);min-width:36px">${y}px</span>
+    </div>`;
+  container.appendChild(card);
+
+  // 드래그 핸들을 미리보기 이미지 위에 생성
+  const wrap   = document.getElementById('preview-drag-wrap');
+  const handle = document.createElement('div');
+  handle.className     = 'drag-handle';
+  handle.id            = 'dh-layer-' + id;
+  handle.dataset.layer = id;
+  handle.style.cssText = `border-color:#60a5fa;top:${(y / 1920 * 100).toFixed(2)}%`;
+  handle.innerHTML     = `<span class="dh-badge"><span class="dh-name" style="color:#60a5fa">레이어</span></span>`;
+  wrap.appendChild(handle);
+
+  // 드래그 이벤트 연결
+  const onStart = (e) => {
+    e.preventDefault();
+    const rect = wrap.getBoundingClientRect();
+    _drag = {
+      handle,
+      key:    null,
+      layerId: id,
+      rect,
+      startY: e.touches ? e.touches[0].clientY : e.clientY,
+      startV: getLayerY(id),
+    };
+  };
+  handle.addEventListener('mousedown',  onStart);
+  handle.addEventListener('touchstart', onStart, { passive: false });
+
+  // 텍스트 입력 → 레이어 업데이트
+  card.querySelector('.layer-text-input').addEventListener('input', (e) => {
+    setLayerProp(id, 'text', e.target.value);
+    debouncedPreview();
+  });
+  // 색상 변경
+  card.querySelector('.layer-color-input').addEventListener('input', (e) => {
+    setLayerProp(id, 'color', e.target.value);
+    debouncedPreview();
+  });
+  // 크기 버튼
+  card.querySelectorAll('.layer-sz-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const delta = parseInt(btn.dataset.delta);
+      const cur   = getLayerProp(id, 'font_size') || 50;
+      const next  = Math.max(12, Math.min(120, cur + delta));
+      setLayerProp(id, 'font_size', next);
+      card.querySelector(`.layer-sz-num[data-layer="${id}"]`).textContent = next + 'pt';
+      debouncedPreview();
+    });
+  });
+  // 삭제 버튼
+  card.querySelector('.layer-del-btn').addEventListener('click', () => removeCustomLayer(id));
+
+  debouncedPreview();
 }
 
-document.getElementById('tab-btn-edit').addEventListener('click',   () => switchTab('edit'));
-document.getElementById('tab-btn-create').addEventListener('click', () => switchTab('create'));
+function removeCustomLayer(id) {
+  customLayers = customLayers.filter(l => l.id !== id);
+  document.getElementById('layer-card-' + id)?.remove();
+  document.getElementById('dh-layer-' + id)?.remove();
+  debouncedPreview();
+}
+
+function getLayerY(id)       { return (customLayers.find(l => l.id === id) || {}).y || 500; }
+function getLayerProp(id, k) { return (customLayers.find(l => l.id === id) || {})[k]; }
+function setLayerProp(id, k, v) {
+  const layer = customLayers.find(l => l.id === id);
+  if (layer) layer[k] = v;
+}
+
+// 소스 영상 업로드는 최상단 통합 업로드(#drop-zone)로 통합됨
 
 /* ====================================================
    레이아웃 위치 + 폰트 크기 조정
@@ -773,7 +906,6 @@ const POS_INPUT = {
   title_y:        'pos-title-y',
   video_y_silver: 'pos-video-y-silver',
   subtitle_y:     'pos-subtitle-y',
-  source_y:       'pos-source-y',
 };
 // data-key → y값 표시 span ID
 const POS_YSPAN = {
@@ -782,20 +914,17 @@ const POS_YSPAN = {
   title_y:        'dhv-title-y',
   video_y_silver: 'dhv-video-y-sc',
   subtitle_y:     'dhv-subtitle-y',
-  source_y:       'dhv-source-y',
 };
 // data-sty → hidden input ID / 표시 span ID
 const STY_INPUT = {
   banner_font_size:   'sty-banner-size',
   title_font_size:    'sty-title-size',
   subtitle_font_size: 'sty-subtitle-size',
-  source_font_size:   'sty-source-size',
 };
 const STY_SPAN = {
   banner_font_size:   'szn-banner',
   title_font_size:    'szn-title',
   subtitle_font_size: 'szn-subtitle',
-  source_font_size:   'szn-source',
 };
 
 function posVal(key) {
@@ -873,16 +1002,32 @@ document.addEventListener('mousemove', (e) => {
   if (!_drag) return;
   const dy = e.clientY - _drag.startY;
   const dv = (dy / _drag.rect.height) * 1920;
-  const v  = setPosVal(_drag.key, _drag.startV + dv);
-  _drag.handle.style.top = (v / 1920 * 100) + '%';
+  if (_drag.layerId) {
+    const v = Math.max(0, Math.min(1900, Math.round(_drag.startV + dv)));
+    setLayerProp(_drag.layerId, 'y', v);
+    _drag.handle.style.top = (v / 1920 * 100) + '%';
+    const ySpan = document.querySelector(`.layer-y-num[data-layer="${_drag.layerId}"]`);
+    if (ySpan) ySpan.textContent = v + 'px';
+  } else {
+    const v = setPosVal(_drag.key, _drag.startV + dv);
+    _drag.handle.style.top = (v / 1920 * 100) + '%';
+  }
 });
 document.addEventListener('touchmove', (e) => {
   if (!_drag) return;
   e.preventDefault();
   const dy = e.touches[0].clientY - _drag.startY;
   const dv = (dy / _drag.rect.height) * 1920;
-  const v  = setPosVal(_drag.key, _drag.startV + dv);
-  _drag.handle.style.top = (v / 1920 * 100) + '%';
+  if (_drag.layerId) {
+    const v = Math.max(0, Math.min(1900, Math.round(_drag.startV + dv)));
+    setLayerProp(_drag.layerId, 'y', v);
+    _drag.handle.style.top = (v / 1920 * 100) + '%';
+    const ySpan = document.querySelector(`.layer-y-num[data-layer="${_drag.layerId}"]`);
+    if (ySpan) ySpan.textContent = v + 'px';
+  } else {
+    const v = setPosVal(_drag.key, _drag.startV + dv);
+    _drag.handle.style.top = (v / 1920 * 100) + '%';
+  }
 }, { passive: false });
 
 document.addEventListener('mouseup',  () => { if (_drag) { _drag = null; debouncedPreview(); } });
@@ -897,7 +1042,6 @@ function getPositions() {
     return {
       title_y:          posVal('title_y'),
       video_y:          posVal('video_y_silver'),
-      source_y:         posVal('source_y'),
       subtitle_margin_v: sub_margin,
     };
   } else {
@@ -914,12 +1058,7 @@ function getStyles() {
     banner_font_size:   styVal('banner_font_size'),
     title_font_size:    styVal('title_font_size'),
     subtitle_font_size: styVal('subtitle_font_size'),
-    source_font_size:   styVal('source_font_size'),
   };
-}
-
-function getSourceText() {
-  return document.getElementById('source-text-input')?.value?.trim() || '';
 }
 
 // ── 템플릿 전환 ──────────────────────────────────────
@@ -941,11 +1080,6 @@ document.querySelectorAll('input[name="template"]').forEach(radio => {
   });
 });
 
-// 출처 텍스트 변경 → 갱신
-document.getElementById('source-text-input')?.addEventListener('input', () => {
-  if (sourceFilename) debouncedPreview();
-});
-
 let previewDebounce = null;
 function debouncedPreview() {
   clearTimeout(previewDebounce);
@@ -962,25 +1096,31 @@ async function requestTemplatePreview() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        filename:      sourceFilename,
-        template:      tpl,
+        filename:     sourceFilename,
+        template:     tpl,
         title,
-        positions:     getPositions(),
-        styles:        getStyles(),
-        source_text:   getSourceText(),
-        text_overlays: getTextOverlays(),
+        positions:    getPositions(),
+        styles:       getStyles(),
+        seek_time:    Math.min(parseFloat(seekSlider?.value || 3), sourceDuration || 30),
+        custom_layers: customLayers,
       }),
     });
     const data = await res.json();
+    const loadingEl = document.getElementById('source-preview-loading');
     if (data.ok) {
-      sourcePreviewImg.src            = data.preview_url + '?t=' + Date.now();
-      sourcePreviewWrap.style.display = 'block';
-      document.getElementById('text-overlay-section').style.display = '';
-      sourcePreviewImg.onload = syncHandlePositions;
+      sourcePreviewImg.src = data.preview_url + '?t=' + Date.now();
+      sourcePreviewImg.onload = () => {
+        if (loadingEl) loadingEl.style.display = 'none';
+        sourcePreviewWrap.style.display = 'block';
+        syncHandlePositions();
+      };
     } else {
+      if (loadingEl) loadingEl.style.display = 'none';
       showToast('미리보기 실패: ' + data.error, 'error');
     }
   } catch (e) {
+    const loadingEl = document.getElementById('source-preview-loading');
+    if (loadingEl) loadingEl.style.display = 'none';
     showToast('미리보기 오류: ' + e.message, 'error');
   }
 }
@@ -993,6 +1133,19 @@ document.getElementById('topic-input').addEventListener('input', () => {
 
 // 갱신 버튼
 sourceRefreshBtn.addEventListener('click', requestTemplatePreview);
+
+// TTS 토글 → 목소리·속도 컨트롤 표시/숨김
+document.getElementById('use-tts-toggle').addEventListener('change', e => {
+  document.getElementById('tts-voice-controls').style.display = e.target.checked ? '' : 'none';
+});
+
+// TTS 속도 슬라이더
+const ttsSpeedSlider = document.getElementById('tts-speed-slider');
+const ttsSpeedLabel  = document.getElementById('tts-speed-label');
+ttsSpeedSlider.addEventListener('input', () => {
+  const v = parseFloat(ttsSpeedSlider.value || '1.0').toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+  ttsSpeedLabel.textContent = v + 'x';
+});
 
 /* ====================================================
    창작 파이프라인 — 상태
@@ -1154,10 +1307,11 @@ approveScriptBtn.addEventListener('click', async () => {
         source_filename: sourceFilename,
         use_tts:         document.getElementById('use-tts-toggle').checked,
         use_subtitle:    document.getElementById('use-subtitle-toggle').checked,
+        tts_voice:       document.querySelector('input[name="tts-voice"]:checked')?.value || 'ko-KR-Neural2-C',
+        tts_speed:       parseFloat(document.getElementById('tts-speed-slider')?.value || 1.0),
         positions:       getPositions(),
         styles:          getStyles(),
-        source_text:     getSourceText(),
-        text_overlays:   getTextOverlays(),
+        custom_layers:   customLayers,
       }),
     });
     const data = await res.json();
@@ -1255,34 +1409,48 @@ function _updatePipelineSteps(pct) {
    새 숏츠 만들기 버튼 — 창작 UI 초기화
    ==================================================== */
 pipelineNewBtn.addEventListener('click', () => {
-  // ── 텍스트 초기화 ──
-  topicInput.value             = '';
-  scriptTextarea.value         = '';
-  pipelineTopic                = '';
+  // ── 전역 상태 초기화 ──
+  uploadedFilename = null;
+  originalBase     = null;
+  _uploadInfo      = {};
+  sourceFilename   = null;
+  sourceDuration   = 0;
 
-  // ── 카드 표시 초기화 ──
-  scriptCard.style.display           = 'block';
-  pipelineResultCard.style.display   = 'none';
-  srtDownloadBtn.style.display       = 'none';
-  srtPreview.style.display           = 'none';
-  srtContent.textContent             = '';
-  approveScriptBtn.disabled          = false;
+  // ── 섹션 표시 초기화 ──
+  document.getElementById('mode-select-card').style.display    = 'none';
+  document.getElementById('narration-section').style.display   = 'none';
+  document.getElementById('crop-section').style.display        = 'none';
 
-  // ── 텍스트 오버레이 초기화 ──
-  textOverlays = [];
-  document.querySelectorAll('[id^="tov-handle-"]').forEach(el => {
-    el._tovAbort?.abort();   // 드래그 리스너 정리
-    el.remove();
-  });
-  document.getElementById('text-overlay-section').style.display = 'none';
+  // ── 내레이션 카드 초기화 ──
+  topicInput.value                    = '';
+  scriptTextarea.value                = '';
+  pipelineTopic                       = '';
+  scriptCard.style.display            = 'block';
+  pipelineResultCard.style.display    = 'none';
+  srtDownloadBtn.style.display        = 'none';
+  srtPreview.style.display            = 'none';
+  srtContent.textContent              = '';
+  approveScriptBtn.disabled           = false;
+  document.getElementById('source-preview-wrap').style.display    = 'none';
+  document.getElementById('source-preview-loading').style.display = 'none';
 
-  // ── 출처 텍스트 초기화 ──
-  const srcTxt = document.getElementById('source-text-input');
-  if (srcTxt) srcTxt.value = '';
+  // ── 슬라이더 초기화 ──
+  seekSlider.value      = 3;
+  seekSlider.max        = 30;
+  seekLabel.textContent = '3.0s';
+
+  // ── 커스텀 레이어 초기화 ──
+  customLayers = [];
+  document.getElementById('custom-layers-container').innerHTML = '';
+  document.querySelectorAll('[id^="dh-layer-"]').forEach(el => el.remove());
 
   // ── 토글 초기화 ──
   document.getElementById('use-tts-toggle').checked      = true;
   document.getElementById('use-subtitle-toggle').checked = true;
+  document.getElementById('tts-voice-controls').style.display = '';
+  ttsSpeedSlider.value      = 1.0;
+  ttsSpeedLabel.textContent = '1.0x';
+  document.querySelector('input[name="tts-voice"][value="ko-KR-Neural2-C"]').checked = true;
 
   // ── 템플릿 초기화 (냠냠코기) ──
   const nmRadio = document.querySelector('input[name="template"][value="namnam"]');
@@ -1291,7 +1459,7 @@ pipelineNewBtn.addEventListener('click', () => {
   // ── 위치 핸들 기본값 초기화 ──
   const posDefaults = {
     banner_h: 240, video_y_namnam: 240, title_y: 320,
-    video_y_silver: 580, subtitle_y: 1720, source_y: 1620,
+    video_y_silver: 580, subtitle_y: 1720,
   };
   Object.entries(posDefaults).forEach(([key, v]) => {
     const inp = document.getElementById(POS_INPUT[key]);
@@ -1299,15 +1467,12 @@ pipelineNewBtn.addEventListener('click', () => {
     const sp  = document.getElementById(POS_YSPAN[key]);
     if (sp)  sp.textContent = v;
   });
+  Object.entries({ banner_font_size: 60, title_font_size: 65, subtitle_font_size: 55 })
+    .forEach(([key, v]) => setStyVal(key, v));
 
-  // ── 폰트 크기 기본값 초기화 ──
-  const styDefaults = {
-    banner_font_size: 60, title_font_size: 65,
-    subtitle_font_size: 55, source_font_size: 40,
-  };
-  Object.entries(styDefaults).forEach(([key, v]) => setStyVal(key, v));
-
-  document.getElementById('topic-card').scrollIntoView({ behavior: 'smooth' });
+  // ── 업로드 드롭존 초기화 ──
+  resetDrop();
+  document.getElementById('upload-card').scrollIntoView({ behavior: 'smooth' });
 });
 
 /* ====================================================
@@ -1371,180 +1536,6 @@ document.getElementById('proofread-apply-btn').addEventListener('click', () => {
   document.getElementById('proofread-result').style.display = 'none';
   showToast('교정 내용이 적용됐습니다.', 'success');
 });
-
-/* ====================================================
-   텍스트 오버레이 — 추가·삭제·드래그·수집
-   ==================================================== */
-let textOverlays = [];
-
-function addTextOverlay() {
-  const n  = textOverlays.length + 1;
-  const id = 'tov_' + Date.now();
-  const ov = { id, n, text: '', x: 540, y: Math.round(960 + (n - 1) * 120), font_size: 50, color: '#ffffff' };
-  textOverlays.push(ov);
-  _renderTovCard(ov);
-  _renderTovHandle(ov);
-}
-
-function removeTextOverlay(id) {
-  textOverlays = textOverlays.filter(o => o.id !== id);
-  document.getElementById('tov-card-' + id)?.remove();
-  const handle = document.getElementById('tov-handle-' + id);
-  if (handle) {
-    handle._tovAbort?.abort();
-    handle.remove();
-  }
-  if (sourceFilename) debouncedPreview();
-}
-
-function updateTextOverlay(id, field, value) {
-  const ov = textOverlays.find(o => o.id === id);
-  if (!ov) return;
-  ov[field] = value;
-  const handle = document.getElementById('tov-handle-' + id);
-  if (handle) {
-    if (field === 'text') {
-      handle.querySelector('.tov-label').textContent = value || ('텍스트 ' + ov.n);
-    }
-    if (field === 'color') {
-      handle.style.borderTopColor = value;
-      handle.querySelector('.tov-label').style.color = value;
-    }
-  }
-  if (sourceFilename) debouncedPreview();
-}
-
-function changeTovSize(id, delta) {
-  const ov = textOverlays.find(o => o.id === id);
-  if (!ov) return;
-  ov.font_size = Math.max(12, Math.min(200, ov.font_size + delta));
-  const el = document.getElementById('tov-size-' + id);
-  if (el) el.value = ov.font_size;
-  if (sourceFilename) debouncedPreview();
-}
-
-function _renderTovCard(ov) {
-  const div = document.createElement('div');
-  div.id = 'tov-card-' + ov.id;
-  div.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:6px';
-
-  const num = document.createElement('span');
-  num.textContent = '텍스트 ' + ov.n;
-  num.style.cssText = 'font-size:.8rem;color:var(--text-muted);min-width:52px;flex-shrink:0';
-
-  const textInput = document.createElement('input');
-  textInput.type = 'text';
-  textInput.value = ov.text;
-  textInput.placeholder = '내용 입력';
-  textInput.style.cssText = 'flex:1;padding:8px 10px;font-size:.88rem;border:1.5px solid var(--border);border-radius:7px;background:var(--input-bg);color:var(--text);min-width:0';
-  textInput.addEventListener('input', () => updateTextOverlay(ov.id, 'text', textInput.value));
-
-  const colorInput = document.createElement('input');
-  colorInput.type = 'color';
-  colorInput.value = ov.color;
-  colorInput.title = '색상';
-  colorInput.style.cssText = 'width:30px;height:30px;border:none;padding:0;cursor:pointer;border-radius:5px;flex-shrink:0';
-  colorInput.addEventListener('change', () => updateTextOverlay(ov.id, 'color', colorInput.value));
-
-  const mkBtn = ch => {
-    const b = document.createElement('button');
-    b.textContent = ch;
-    b.style.cssText = 'padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:transparent;color:var(--text);cursor:pointer;font-size:.82rem;flex-shrink:0';
-    return b;
-  };
-  const minusBtn = mkBtn('−');
-  minusBtn.addEventListener('click', () => changeTovSize(ov.id, -2));
-
-  const sizeInput = document.createElement('input');
-  sizeInput.type = 'number';
-  sizeInput.id = 'tov-size-' + ov.id;
-  sizeInput.value = ov.font_size;
-  sizeInput.min = 12;
-  sizeInput.max = 200;
-  sizeInput.style.cssText = 'width:46px;padding:5px 4px;font-size:.82rem;border:1px solid var(--border);border-radius:5px;background:var(--input-bg);color:var(--text);text-align:center;flex-shrink:0';
-  sizeInput.addEventListener('change', () => {
-    const v = Math.max(12, Math.min(200, parseInt(sizeInput.value) || 50));
-    sizeInput.value = v;
-    const ov2 = textOverlays.find(o => o.id === ov.id);
-    if (ov2) { ov2.font_size = v; if (sourceFilename) debouncedPreview(); }
-  });
-
-  const plusBtn = mkBtn('+');
-  plusBtn.addEventListener('click', () => changeTovSize(ov.id, 2));
-
-  const delBtn = document.createElement('button');
-  delBtn.textContent = '✕';
-  delBtn.style.cssText = 'padding:5px 8px;border:none;background:transparent;color:#f87171;cursor:pointer;font-size:.88rem;flex-shrink:0';
-  delBtn.addEventListener('click', () => removeTextOverlay(ov.id));
-
-  div.append(num, textInput, colorInput, minusBtn, sizeInput, plusBtn, delBtn);
-  document.getElementById('text-overlay-list').appendChild(div);
-}
-
-function _renderTovHandle(ov) {
-  const wrap = document.getElementById('preview-drag-wrap');
-  if (!wrap) return;
-  const el = document.createElement('div');
-  el.id = 'tov-handle-' + ov.id;
-  el.className = 'drag-handle';
-  el.style.borderTopColor = ov.color;
-  el.style.top = (ov.y / 1920 * 100) + '%';
-
-  const badge = document.createElement('span');
-  badge.className = 'dh-badge';
-  const label = document.createElement('span');
-  label.className = 'dh-name tov-label';
-  label.textContent = ov.text || ('텍스트 ' + ov.n);
-  label.style.color = ov.color;
-  badge.appendChild(label);
-  el.appendChild(badge);
-
-  wrap.appendChild(el);
-  _addTovDrag(el, ov);
-}
-
-function _addTovDrag(el, ov) {
-  const ac     = new AbortController();
-  const signal = ac.signal;
-  el._tovAbort = ac;
-
-  let active = false, moved = false, sy, oy;
-  const start = e => {
-    if (e.target.classList.contains('sz-btn')) return;
-    active = true; moved = false;
-    const pt = e.touches ? e.touches[0] : e;
-    sy = pt.clientY; oy = ov.y;
-    e.preventDefault(); e.stopPropagation();
-  };
-  const move = e => {
-    if (!active) return;
-    e.preventDefault();
-    moved = true;
-    const pt   = e.touches ? e.touches[0] : e;
-    const rect = document.getElementById('preview-drag-wrap').getBoundingClientRect();
-    ov.y = Math.round(Math.max(0, Math.min(1920, oy + (pt.clientY - sy) / rect.height * 1920)));
-    el.style.top = (ov.y / 1920 * 100) + '%';
-  };
-  const end = () => {
-    if (!active) return;
-    active = false;
-    if (moved && sourceFilename) debouncedPreview();
-  };
-  el.addEventListener('mousedown',  start, { signal });
-  el.addEventListener('touchstart', start, { passive: false, signal });
-  document.addEventListener('mousemove',  move, { signal });
-  document.addEventListener('touchmove',  move, { passive: false, signal });
-  document.addEventListener('mouseup',    end,  { signal });
-  document.addEventListener('touchend',   end,  { signal });
-}
-
-function getTextOverlays() {
-  return textOverlays
-    .filter(o => o.text.trim())
-    .map(o => ({ text: o.text.trim(), x: o.x, y: o.y, font_size: o.font_size, color: o.color.replace('#', '') }));
-}
-
-document.getElementById('add-text-overlay-btn').addEventListener('click', addTextOverlay);
 
 /* 템플릿 라디오 버튼 — 선택된 항목 테두리 강조 */
 document.querySelectorAll('input[name="template"]').forEach(radio => {

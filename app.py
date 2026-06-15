@@ -160,9 +160,9 @@ def get_whisper_model():
     if _whisper_model is None:
         from faster_whisper import WhisperModel
         try:
-            _whisper_model = WhisperModel('medium', device='cuda', compute_type='float32')
+            _whisper_model = WhisperModel('large-v3-turbo', device='cuda', compute_type='float16')
         except Exception:
-            _whisper_model = WhisperModel('medium', device='cpu', compute_type='int8')
+            _whisper_model = WhisperModel('large-v3-turbo', device='cpu', compute_type='int8')
     return _whisper_model
 
 
@@ -247,6 +247,7 @@ def _run_job_thread(cmd: list, job_id: str, duration: float,
             _jobs[job_id].update({'done': True, 'finished_at': time.time(), 'error': err or '처리 중 오류 발생'})
 
     except Exception as e:
+        log_error(e)
         if job_id in _jobs:
             _jobs[job_id].update({'done': True, 'finished_at': time.time(), 'error': str(e)})
     finally:
@@ -369,6 +370,7 @@ def preview():
                 seek_time=seek_time,
             )
         except Exception as e:
+            log_error(e)
             return jsonify({'ok': False, 'error': str(e)}), 500
 
     return send_file(preview_path, mimetype='image/jpeg')
@@ -435,6 +437,7 @@ def process():
         return jsonify({'ok': True, 'job_id': job_id})
 
     except Exception as e:
+        log_error(e)
         return jsonify({'ok': False, 'error': str(e)}), 500
 
 
@@ -446,10 +449,10 @@ def progress_stream(job_id: str):
     클라이언트가 EventSource로 이 URL을 구독하면
     {'pct': 0~100, 'done': bool, 'msg': str} 형태의 JSON을 받는다.
     완료 시 'result', 'original', 'srt' 필드도 포함된다.
-    최대 10분 후 타임아웃 메시지를 보내고 스트림을 닫는다.
+    최대 20분 후 타임아웃 메시지를 보내고 스트림을 닫는다.
     """
     def generate():
-        deadline = time.time() + 600
+        deadline = time.time() + 1200
         while time.time() < deadline:
             job = _jobs.get(job_id)
 
@@ -584,7 +587,14 @@ def transcribe():
             model = get_whisper_model()
 
             _jobs[job_id].update({'msg': '음성 인식 중... (2/3)', 'pct': 30})
-            segments, _ = model.transcribe(_path, language='ko')
+            segments, _ = model.transcribe(
+                _path, language='ko',
+                vad_filter=True,
+                vad_parameters={'min_silence_duration_ms': 300},
+                condition_on_previous_text=False,
+                no_speech_threshold=0.6,
+                initial_prompt='안녕하세요.',
+            )
             segments = list(segments)
 
             _jobs[job_id].update({'msg': 'SRT 저장 중... (3/3)', 'pct': 90})
@@ -599,6 +609,7 @@ def transcribe():
             _jobs[job_id].update({'done': True, 'finished_at': time.time(),
                                   'error': 'faster-whisper가 설치되지 않았습니다. pip install faster-whisper'})
         except Exception as e:
+            log_error(e)
             _jobs[job_id].update({'done': True, 'finished_at': time.time(), 'error': str(e)})
 
     threading.Thread(target=_run_transcribe, daemon=True).start()
@@ -650,19 +661,21 @@ def pipeline_upload_source():
     filename = make_upload_name(base, ext, 'src')
     save_path = os.path.join(config.UPLOAD_FOLDER, filename)
     f.save(save_path)
-    return jsonify({'ok': True, 'filename': filename})
+    import modules.video_processor as vp
+    info = vp.get_video_info(save_path)
+    return jsonify({'ok': True, 'filename': filename, 'duration': info.get('duration', 0)})
 
 
 @app.route('/pipeline/template-preview', methods=['POST'])
 def pipeline_template_preview():
-    data        = request.get_json(silent=True) or {}
-    filename    = data.get('filename', '')
-    tpl_key     = data.get('template', 'namnam')
-    title       = data.get('title', '')
-    positions     = data.get('positions',   {})
-    styles        = data.get('styles',      {})
-    source_text   = data.get('source_text', '')
-    text_overlays = data.get('text_overlays') or []
+    data          = request.get_json(silent=True) or {}
+    filename      = data.get('filename', '')
+    tpl_key       = data.get('template', 'namnam')
+    title         = data.get('title', '')
+    positions     = data.get('positions',     {})
+    styles        = data.get('styles',        {})
+    seek_time     = max(0.0, float(data.get('seek_time', 3)))
+    custom_layers = data.get('custom_layers', [])
 
     if not filename or not safe_filename(filename):
         return jsonify({'ok': False, 'error': '잘못된 파일명'}), 400
@@ -677,8 +690,8 @@ def pipeline_template_preview():
         out_path = os.path.join(config.OUTPUT_FOLDER, out_name)
         generate_template_preview(video_path, out_path, tpl_key, title,
                                   positions=positions, styles=styles,
-                                  source_text=source_text,
-                                  text_overlays=text_overlays)
+                                  seek_time=seek_time,
+                                  custom_layers=custom_layers)
         return jsonify({'ok': True, 'preview_url': f'/download/{out_name}'})
     except Exception as e:
         log_error(e)
@@ -735,10 +748,11 @@ def pipeline_run():
     source_filename    = (data.get('source_filename') or '').strip()
     use_tts            = bool(data.get('use_tts', True))
     use_subtitle       = bool(data.get('use_subtitle', True))
-    positions          = data.get('positions')     or {}
-    styles             = data.get('styles')        or {}
-    source_text        = (data.get('source_text')  or '').strip()
-    text_overlays      = data.get('text_overlays') or []
+    positions          = data.get('positions')    or {}
+    styles             = data.get('styles')       or {}
+    custom_layers      = data.get('custom_layers') or []
+    tts_voice          = (data.get('tts_voice') or 'ko-KR-Neural2-C').strip()
+    tts_speed          = max(0.25, min(4.0, float(data.get('tts_speed') or 1.0)))
     if not script and use_tts:
         return jsonify({'ok': False, 'error': '대본이 없습니다. (TTS 끄면 대본 없어도 됩니다)'}), 400
     if not source_filename:
@@ -778,7 +792,7 @@ def pipeline_run():
             if use_tts:
                 # ── 1a. TTS 음성 생성 ─────────────────────
                 _jobs[job_id].update({'pct': 10, 'msg': '🔊 TTS 음성 생성 중...'})
-                generate_voice(script, voice_path, speaker=pc.TTS_VOICE, speed=float(pc.TTS_RATE))
+                generate_voice(script, voice_path, speaker=tts_voice, speed=tts_speed)
             else:
                 # ── 1b. 소스 영상에서 오디오 추출 ──────────
                 _jobs[job_id].update({'pct': 10, 'msg': '🔊 원본 오디오 추출 중...'})
@@ -804,8 +818,8 @@ def pipeline_run():
             assemble_stages(voice_path, bg_paths, result_path, duration, _jobs, job_id,
                             srt_save_path=srt_path, scenes=[], title=topic, template=template,
                             use_tts=use_tts, overlay_specs=[],
-                            positions=positions, styles=styles, source_text=source_text,
-                            use_subtitle=use_subtitle, text_overlays=text_overlays)
+                            positions=positions, styles=styles,
+                            use_subtitle=use_subtitle, custom_layers=custom_layers)
             _jobs[job_id].update({'srt': srt_name})
 
             # assemble_stages 내부에서 pct=100, done=True 로 설정함
