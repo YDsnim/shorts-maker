@@ -429,7 +429,7 @@ def _apply_template(subtitled: str, title: str, tpl_key: str, tmp: str, output_p
         source_png = os.path.join(tmp, 'source.png')
         generate_source_overlay_png(source_png, 'silver_crown',
                                     positions=pos, styles=sty,
-                                    custom_text=source_text or None)
+                                    custom_text=source_text)
         next_path = os.path.join(tmp, 'after_source.mp4') if custom_layers else output_path
         _run_ffmpeg([
             'ffmpeg', '-i', cur, '-i', source_png,
