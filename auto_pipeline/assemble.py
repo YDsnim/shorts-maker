@@ -123,11 +123,11 @@ def assemble_stages(voice_path: str, bg_paths,
 
         shutil.copy2(intermediate, output_path)
 
+        final_update = {'pct': 100, 'done': True}
         if srt_save_path and use_subtitle and os.path.exists(srt_path):
-
             shutil.copy2(srt_path, srt_save_path)
-
-        jobs[job_id].update({'pct': 100, 'done': True})
+            final_update['srt'] = os.path.basename(srt_save_path)
+        jobs[job_id].update(final_update)
 
     except Exception as e:
         jobs[job_id].update({'done': True, 'error': str(e)})

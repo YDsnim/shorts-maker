@@ -37,15 +37,10 @@ def _hex_to_rgb(hex_str: str) -> tuple:
 
 
 def _draw_layer_bar(img: Image.Image, text: str, y: int, font) -> None:
-    """가로 전체 너비 바 + 첫 단어 노랑 / 나머지 흰색 (제목 스타일)"""
-    draw  = ImageDraw.Draw(img)
-    bbox  = font.getbbox('가')
-    th    = bbox[3] - bbox[1]
-    pad   = max(int(th * 0.45), 16)
-    bar_h = th + pad * 2
-
-    bar = Image.new('RGBA', (VIDEO_W, bar_h), (17, 17, 17, 255))
-    img.paste(bar, (0, y), bar)
+    """첫 단어 노랑 / 나머지 흰색 — 배경 없이 텍스트만 중앙 출력"""
+    draw = ImageDraw.Draw(img)
+    bbox = font.getbbox('가')
+    pad  = max(int((bbox[3] - bbox[1]) * 0.45), 16)
 
     parts       = text.split(' ', 1)
     yellow_text = parts[0]
@@ -166,8 +161,7 @@ def generate_template_preview(video_path: str, out_path: str,
                     continue
                 font      = _load_font(int(layer.get('font_size', 50)))
                 y         = int(layer.get('y', 500))
-                color_rgb = _hex_to_rgb(layer.get('color') or '#FFFFFF')
-                _draw_layer_bar(result, text, y, font, color_rgb)
+                _draw_layer_bar(result, text, y, font)
             result.convert('RGB').save(out_path, 'JPEG', quality=88)
     finally:
         try:
