@@ -1049,6 +1049,30 @@ async function checkPipelineConfig() {
 checkPipelineConfig();
 
 /* ====================================================
+   뒤로 / 처음으로 버튼
+   ==================================================== */
+function goToStudioSelect() {
+  hideAllSections();
+  document.getElementById('mode-select-card').style.display = 'block';
+  document.getElementById('mode-select-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function goToStart() {
+  uploadedFilename = null; originalBase = null; _uploadInfo = {}; sourceFilename = null; sourceDuration = 0;
+  hideAllSections();
+  document.getElementById('mode-select-card').style.display = 'none';
+  resetDrop();
+  document.getElementById('video-info').style.display = 'none';
+  document.getElementById('video-info').innerHTML = '';
+  document.getElementById('upload-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+document.getElementById('narration-back-btn').addEventListener('click', goToStudioSelect);
+document.getElementById('crop-back-btn').addEventListener('click', goToStudioSelect);
+document.getElementById('subtitle-back-btn').addEventListener('click', goToStudioSelect);
+document.getElementById('crop-restart-btn').addEventListener('click', goToStart);
+
+/* ====================================================
    자막 스튜디오
    ==================================================== */
 document.getElementById('subtitle-analyze-btn').addEventListener('click', async () => {

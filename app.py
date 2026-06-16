@@ -60,6 +60,7 @@ _last_cleanup  = 0.0
 
 # Whisper 모델 캐시: 처음 요청 시 로드한 뒤 메모리에 유지
 _whisper_model = None
+_whisper_lock  = threading.Lock()   # 동시 추론 충돌 방지
 
 # 백그라운드 작업 레지스트리
 # job_id → { pct, done, error, result, original, srt, msg }
@@ -594,18 +595,18 @@ def transcribe():
     def _run_transcribe():
         try:
             _jobs[job_id].update({'msg': '모델 준비 중... (1/3)', 'pct': 10})
-            model = get_whisper_model()
-
-            _jobs[job_id].update({'msg': '음성 인식 중... (2/3)', 'pct': 30})
-            segments, _ = model.transcribe(
-                _path, language='ko',
-                vad_filter=True,
-                vad_parameters={'min_silence_duration_ms': 300},
-                condition_on_previous_text=False,
-                no_speech_threshold=0.6,
-                initial_prompt='안녕하세요.',
-            )
-            segments = list(segments)
+            with _whisper_lock:
+                model = get_whisper_model()
+                _jobs[job_id].update({'msg': '음성 인식 중... (2/3)', 'pct': 30})
+                segments, _ = model.transcribe(
+                    _path, language='ko',
+                    vad_filter=True,
+                    vad_parameters={'min_silence_duration_ms': 300},
+                    condition_on_previous_text=False,
+                    no_speech_threshold=0.6,
+                    initial_prompt='안녕하세요.',
+                )
+                segments = list(segments)
 
             _jobs[job_id].update({'msg': 'SRT 저장 중... (3/3)', 'pct': 90})
             srt_name = make_srt_name(_base)
@@ -942,21 +943,21 @@ def subtitle_analyze():
     def _run():
         try:
             _jobs[job_id].update({'msg': '모델 준비 중... (1/2)', 'pct': 10})
-            model = get_whisper_model()
-
-            _jobs[job_id].update({'msg': '음성 인식 중... (2/2)', 'pct': 30})
-            segments, _ = model.transcribe(
-                _path, language='ko',
-                vad_filter=True,
-                vad_parameters={'min_silence_duration_ms': 300},
-                condition_on_previous_text=False,
-                no_speech_threshold=0.6,
-                initial_prompt='안녕하세요.',
-            )
-            segs = [
-                {'id': i, 'start': round(s.start, 3), 'end': round(s.end, 3), 'text': s.text.strip()}
-                for i, s in enumerate(list(segments), 1)
-            ]
+            with _whisper_lock:
+                model = get_whisper_model()
+                _jobs[job_id].update({'msg': '음성 인식 중... (2/2)', 'pct': 30})
+                segments, _ = model.transcribe(
+                    _path, language='ko',
+                    vad_filter=True,
+                    vad_parameters={'min_silence_duration_ms': 300},
+                    condition_on_previous_text=False,
+                    no_speech_threshold=0.6,
+                    initial_prompt='안녕하세요.',
+                )
+                segs = [
+                    {'id': i, 'start': round(s.start, 3), 'end': round(s.end, 3), 'text': s.text.strip()}
+                    for i, s in enumerate(list(segments), 1)
+                ]
             _jobs[job_id].update({
                 'pct': 100, 'done': True,
                 'finished_at': time.time(),

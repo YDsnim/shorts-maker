@@ -45,25 +45,25 @@
   <div class="card" id="mode-select-card" style="display:none">
     <div class="card-title"><span class="icon">🎬</span> 스튜디오 선택</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-      <button class="btn btn-outline mode-btn" id="mode-btn-crop"
-              style="padding:16px 8px;line-height:1.7">
-        ✂️ 크롭 스튜디오<br>
-        <span style="font-size:.72rem;font-weight:400;opacity:.7">가로→세로 변환</span>
+      <button class="btn btn-outline mode-btn" id="mode-btn-crop">
+        <span class="mode-btn-name">✂️ 크롭</span>
+        <span class="mode-btn-name">스튜디오</span>
+        <span class="mode-btn-desc">가로→세로 변환</span>
       </button>
-      <button class="btn btn-outline mode-btn" id="mode-btn-layout"
-              style="padding:16px 8px;line-height:1.7">
-        🎨 레이아웃 스튜디오<br>
-        <span style="font-size:.72rem;font-weight:400;opacity:.7">템플릿·텍스트 오버레이</span>
+      <button class="btn btn-outline mode-btn" id="mode-btn-layout">
+        <span class="mode-btn-name">🎨 레이아웃</span>
+        <span class="mode-btn-name">스튜디오</span>
+        <span class="mode-btn-desc">템플릿·텍스트 오버레이</span>
       </button>
-      <button class="btn btn-outline mode-btn" id="mode-btn-tts"
-              style="padding:16px 8px;line-height:1.7">
-        🎤 TTS 스튜디오<br>
-        <span style="font-size:.72rem;font-weight:400;opacity:.7">대본→음성→영상 합성</span>
+      <button class="btn btn-outline mode-btn" id="mode-btn-tts">
+        <span class="mode-btn-name">🎤 TTS</span>
+        <span class="mode-btn-name">스튜디오</span>
+        <span class="mode-btn-desc">대본→음성→영상 합성</span>
       </button>
-      <button class="btn btn-outline mode-btn" id="mode-btn-subtitle"
-              style="padding:16px 8px;line-height:1.7">
-        📝 자막 스튜디오<br>
-        <span style="font-size:.72rem;font-weight:400;opacity:.7">음성 분석·편집·SRT</span>
+      <button class="btn btn-outline mode-btn" id="mode-btn-subtitle">
+        <span class="mode-btn-name">📝 자막</span>
+        <span class="mode-btn-name">스튜디오</span>
+        <span class="mode-btn-desc">음성 분석·편집·SRT</span>
       </button>
     </div>
   </div>
@@ -73,9 +73,13 @@
   <!-- ════════════════════════════════════════════════════ -->
   <div id="narration-section" style="display:none">
 
-    <div id="studio-mode-badge"
-         style="text-align:center;padding:6px 0 2px;font-size:.95rem;font-weight:700;color:var(--accent)">
-      🎨 레이아웃 스튜디오
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0 2px">
+      <button class="btn-back" id="narration-back-btn">← 스튜디오 선택</button>
+      <div id="studio-mode-badge"
+           style="font-size:.95rem;font-weight:700;color:var(--accent)">
+        🎨 레이아웃 스튜디오
+      </div>
+      <div style="width:96px"></div>
     </div>
 
     <div id="api-warning" class="warning-banner" style="display:none"></div>
@@ -301,6 +305,10 @@
   <!-- ════════════════════════════════════════════════════ -->
   <div id="crop-section" style="display:none">
 
+    <div style="display:flex;align-items:center;padding:4px 0 2px">
+      <button class="btn-back" id="crop-back-btn">← 스튜디오 선택</button>
+    </div>
+
     <div class="card" id="edit-card">
       <div class="card-title"><span class="icon">✂️</span> 영역 선택</div>
 
@@ -382,7 +390,9 @@
     <div class="card" id="result-section" style="display:none">
       <div class="card-title"><span class="icon">✅</span> 변환 완료!</div>
       <a id="download-btn" class="btn btn-success" href="#" download>📥 완성된 영상 다운로드</a>
-      <p class="result-hint">다운로드 후 다른 영역으로 다시 변환하려면 영상을 다시 업로드해 주세요.</p>
+      <button class="btn btn-outline" id="crop-restart-btn" style="margin-top:8px;width:100%">
+        ↩ 처음으로
+      </button>
     </div>
 
   </div><!-- /crop-section -->
@@ -391,6 +401,10 @@
   <!--  자막 스튜디오                                       -->
   <!-- ════════════════════════════════════════════════════ -->
   <div id="subtitle-section" style="display:none">
+
+    <div style="display:flex;align-items:center;padding:4px 0 2px">
+      <button class="btn-back" id="subtitle-back-btn">← 스튜디오 선택</button>
+    </div>
 
     <div class="card">
       <div class="card-title"><span class="icon">📝</span> 자막 스튜디오</div>
