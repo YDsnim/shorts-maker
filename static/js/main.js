@@ -15,8 +15,8 @@ let sourceFilename = null;
 let sourceDuration = 0;
 let customLayers   = [];
 let _layerCounter  = 0;
-let _studioMode    = 'layout'; // 'layout' | 'tts'
-let subtitleSegments = [];     // 자막 스튜디오 세그먼트
+let _pendingStudio = null; // 'crop' | 'layout' | 'subtitle'
+let subtitleSegments = [];
 const MIN_PX = 20;
 
 // ── DOM 참조 ───────────────────────────────────────
@@ -57,10 +57,6 @@ const sourceRefreshBtn     = document.getElementById('source-refresh-btn');
 const seekSlider           = document.getElementById('preview-seek-slider');
 const seekLabel            = document.getElementById('preview-seek-label');
 const topicInput           = document.getElementById('topic-input');
-const scriptCard           = document.getElementById('script-card');
-const scriptTextarea       = document.getElementById('script-textarea');
-const approveScriptBtn     = document.getElementById('approve-script-btn');
-const downloadScriptBtn    = document.getElementById('download-script-btn');
 const pipelineProgressCard = document.getElementById('pipeline-progress-card');
 const pipelineFill         = document.getElementById('pipeline-fill');
 const pipelineText         = document.getElementById('pipeline-text');
@@ -69,53 +65,39 @@ const pipelineDownloadBtn  = document.getElementById('pipeline-download-btn');
 const pipelineNewBtn       = document.getElementById('pipeline-new-btn');
 const pipelineEta          = document.getElementById('pipeline-eta');
 const apiWarning           = document.getElementById('api-warning');
-const PSTEPS = {
-  voice:    document.getElementById('pstep-voice'),
-  bg:       document.getElementById('pstep-bg'),
-  sub:      document.getElementById('pstep-sub'),
-  assemble: document.getElementById('pstep-assemble'),
-};
+const ttsSpeedSlider       = document.getElementById('tts-speed-slider');
+const ttsSpeedLabel        = document.getElementById('tts-speed-label');
 
 /* ====================================================
    섹션 전환 헬퍼
    ==================================================== */
 function hideAllSections() {
-  document.getElementById('crop-section').style.display      = 'none';
-  document.getElementById('narration-section').style.display = 'none';
-  document.getElementById('subtitle-section').style.display  = 'none';
+  document.getElementById('crop-section').style.display     = 'none';
+  document.getElementById('layout-section').style.display   = 'none';
+  document.getElementById('subtitle-section').style.display = 'none';
+  document.getElementById('tts-section').style.display      = 'none';
 }
 
-function enterNarrationSection(mode) {
-  _studioMode = mode;
-  const isLayout = mode === 'layout';
+function _showUploadFor(studio) {
+  _pendingStudio = studio;
+  document.getElementById('mode-select-card').style.display = 'none';
+  document.getElementById('upload-card').style.display      = 'block';
+  requestAnimationFrame(() =>
+    document.getElementById('upload-card').scrollIntoView({ behavior: 'smooth', block: 'start' })
+  );
+}
 
-  document.getElementById('narration-section').style.display = 'block';
-  document.getElementById('mode-select-card').style.display  = 'none';
-
-  document.getElementById('studio-mode-badge').textContent =
-    isLayout ? '🎨 레이아웃 스튜디오' : '🎤 TTS 스튜디오';
-
-  scriptCard.style.display =
-    document.getElementById('layout-apply-card').style.display = isLayout ? 'none' : '';
-  document.getElementById('layout-apply-card').style.display = isLayout ? '' : 'none';
-  scriptCard.style.display = isLayout ? 'none' : '';
-
-  document.getElementById('pipeline-steps-wrap').style.display = isLayout ? 'none' : '';
-
+function _initLayoutAfterUpload() {
   if (sourceDuration > 0) {
     seekSlider.max   = Math.floor(sourceDuration);
     seekSlider.value = Math.min(3, Math.floor(sourceDuration));
     seekLabel.textContent = parseFloat(seekSlider.value).toFixed(1) + 's';
   }
   sourceFilenameLabel.textContent = originalBase || '';
-
   document.getElementById('source-preview-loading').style.display = 'block';
   sourcePreviewWrap.style.display = 'none';
+  document.getElementById('layout-apply-card').style.display = 'block';
   requestTemplatePreview();
-
-  requestAnimationFrame(() =>
-    document.getElementById('narration-section').scrollIntoView({ behavior: 'smooth', block: 'start' })
-  );
 }
 
 /* ====================================================
@@ -123,28 +105,30 @@ function enterNarrationSection(mode) {
    ==================================================== */
 document.getElementById('mode-btn-crop').addEventListener('click', () => {
   hideAllSections();
-  document.getElementById('mode-select-card').style.display = 'none';
   document.getElementById('crop-section').style.display = 'block';
-  requestAnimationFrame(() => initCropUI(uploadedFilename, _uploadInfo));
+  _showUploadFor('crop');
 });
 
 document.getElementById('mode-btn-layout').addEventListener('click', () => {
   hideAllSections();
-  enterNarrationSection('layout');
+  document.getElementById('layout-apply-card').style.display = 'none';
+  document.getElementById('layout-section').style.display = 'block';
+  _showUploadFor('layout');
 });
 
 document.getElementById('mode-btn-tts').addEventListener('click', () => {
   hideAllSections();
-  enterNarrationSection('tts');
+  document.getElementById('mode-select-card').style.display = 'none';
+  document.getElementById('tts-section').style.display = 'block';
+  requestAnimationFrame(() =>
+    document.getElementById('tts-section').scrollIntoView({ behavior: 'smooth', block: 'start' })
+  );
 });
 
 document.getElementById('mode-btn-subtitle').addEventListener('click', () => {
   hideAllSections();
-  document.getElementById('mode-select-card').style.display = 'none';
   document.getElementById('subtitle-section').style.display = 'block';
-  requestAnimationFrame(() =>
-    document.getElementById('subtitle-section').scrollIntoView({ behavior: 'smooth', block: 'start' })
-  );
+  _showUploadFor('subtitle');
 });
 
 /* ====================================================
@@ -211,10 +195,22 @@ function uploadFile(file) {
         `해상도 <span>${info.width}×${info.height}</span> &nbsp; 길이 <span>${info.duration_str}</span>`;
     }
 
-    const modeCard = document.getElementById('mode-select-card');
-    modeCard.style.display = 'block';
+    document.getElementById('upload-card').style.display = 'none';
     showToast('업로드 완료!', 'success');
-    requestAnimationFrame(() => modeCard.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+
+    if (_pendingStudio === 'crop') {
+      requestAnimationFrame(() => initCropUI(uploadedFilename, _uploadInfo));
+    } else if (_pendingStudio === 'layout') {
+      _initLayoutAfterUpload();
+      requestAnimationFrame(() =>
+        document.getElementById('layout-section').scrollIntoView({ behavior: 'smooth', block: 'start' })
+      );
+    } else if (_pendingStudio === 'subtitle') {
+      document.getElementById('subtitle-section').style.display = 'block';
+      requestAnimationFrame(() =>
+        document.getElementById('subtitle-section').scrollIntoView({ behavior: 'smooth', block: 'start' })
+      );
+    }
   };
 
   xhr.onerror = () => { uploadProgressWrap.style.display = 'none'; showToast('네트워크 오류', 'error'); resetDrop(); };
@@ -485,8 +481,22 @@ async function fetchYoutube() {
     const info = _uploadInfo;
     if (info.width) { document.getElementById('video-info').style.display = 'flex'; document.getElementById('video-info').innerHTML = `해상도 <span>${info.width}×${info.height}</span> &nbsp; 길이 <span>${info.duration_str}</span>`; }
     dropZone.innerHTML = `<strong>✅ ${data.original_base}</strong><p style="color:var(--success)">${info.duration_str ? info.duration_str + ' · ' : ''}${info.width ? info.width + '×' + info.height : ''}</p>`;
-    document.getElementById('mode-select-card').style.display = 'block';
+    document.getElementById('upload-card').style.display = 'none';
     showToast('YouTube 영상 준비 완료!', 'success'); ytUrl.value = '';
+
+    if (_pendingStudio === 'crop') {
+      requestAnimationFrame(() => initCropUI(uploadedFilename, _uploadInfo));
+    } else if (_pendingStudio === 'layout') {
+      _initLayoutAfterUpload();
+      requestAnimationFrame(() =>
+        document.getElementById('layout-section').scrollIntoView({ behavior: 'smooth', block: 'start' })
+      );
+    } else if (_pendingStudio === 'subtitle') {
+      document.getElementById('subtitle-section').style.display = 'block';
+      requestAnimationFrame(() =>
+        document.getElementById('subtitle-section').scrollIntoView({ behavior: 'smooth', block: 'start' })
+      );
+    }
   } catch { showToast('네트워크 오류', 'error'); resetDrop(); }
   finally { ytBtn.disabled = false; ytBtn.textContent = '▶ 가져오기'; }
 }
@@ -535,12 +545,14 @@ seekSlider.addEventListener('input', () => {
 document.getElementById('add-text-layer-btn').addEventListener('click', () => addCustomLayer());
 
 function addCustomLayer(init = {}) {
-  const id       = 'cl-' + (++_layerCounter);
-  const y        = init.y         ?? 960;
-  const fontSize = init.font_size ?? 50;
-  const text     = init.text      || '';
+  const id             = 'cl-' + (++_layerCounter);
+  const y              = init.y               ?? 960;
+  const fontSize       = init.font_size       ?? 50;
+  const text           = init.text            || '';
+  const highlightColor = init.highlight_color || '#ffcc00';
+  const baseColor      = init.base_color      || '#ffffff';
 
-  customLayers.push({ id, text, y, font_size: fontSize });
+  customLayers.push({ id, text, y, font_size: fontSize, highlight_color: highlightColor, base_color: baseColor });
 
   const container = document.getElementById('custom-layers-container');
   const card      = document.createElement('div');
@@ -548,9 +560,17 @@ function addCustomLayer(init = {}) {
   card.style.cssText = 'background:var(--surface-2,#222);border:1px solid var(--border,#333);border-radius:8px;padding:10px;display:flex;flex-direction:column;gap:8px;';
   card.innerHTML = `
     <div style="display:flex;align-items:center;gap:6px">
-      <input type="text" placeholder="첫 단어 노랑 · 나머지 흰색" value="${text.replace(/"/g,'&quot;')}"
+      <input type="text" placeholder="텍스트 입력" value="${text.replace(/"/g,'&quot;')}"
              style="flex:1;background:var(--surface,#1a1a1a);border:1px solid var(--border,#333);border-radius:6px;padding:6px 8px;color:#fff;font-size:.9rem"
              class="layer-text-input">
+      <label title="강조색 (첫 단어)" style="cursor:pointer;display:flex;align-items:center">
+        <input type="color" class="layer-highlight-color" value="${highlightColor}"
+               style="width:26px;height:26px;border:2px solid var(--border,#333);border-radius:5px;padding:1px;cursor:pointer;background:none">
+      </label>
+      <label title="기본색" style="cursor:pointer;display:flex;align-items:center">
+        <input type="color" class="layer-base-color" value="${baseColor}"
+               style="width:26px;height:26px;border:2px solid var(--border,#333);border-radius:5px;padding:1px;cursor:pointer;background:none">
+      </label>
       <button class="layer-del-btn"
               style="background:#c0392b;color:#fff;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:.85rem">✕</button>
     </div>
@@ -561,7 +581,7 @@ function addCustomLayer(init = {}) {
       <span class="layer-sz-num" style="font-size:.85rem;min-width:28px;text-align:center">${fontSize}pt</span>
       <button data-delta="2" class="layer-sz-btn"
               style="background:none;border:1px solid var(--border,#333);border-radius:4px;padding:2px 8px;color:#fff;cursor:pointer">+</button>
-      <span style="font-size:.75rem;color:var(--text-muted,#888);margin-left:auto">미리보기에서 드래그로 위치 조정</span>
+      <span style="font-size:.75rem;color:var(--text-muted,#888);margin-left:auto">드래그로 위치 조정</span>
     </div>`;
   container.appendChild(card);
 
@@ -579,14 +599,24 @@ function addCustomLayer(init = {}) {
       debouncedPreview();
     });
   });
+  card.querySelector('.layer-highlight-color').addEventListener('input', e => {
+    setLayerProp(id, 'highlight_color', e.target.value);
+    const h = document.getElementById('layer-handle-' + id);
+    if (h) { h.style.borderColor = e.target.value; h.querySelector('.layer-handle-label').style.color = e.target.value; }
+    debouncedPreview();
+  });
+  card.querySelector('.layer-base-color').addEventListener('input', e => {
+    setLayerProp(id, 'base_color', e.target.value);
+    debouncedPreview();
+  });
   card.querySelector('.layer-del-btn').addEventListener('click', () => removeCustomLayer(id));
 
   const wrap   = document.getElementById('preview-drag-wrap');
   const handle = document.createElement('div');
   handle.id        = 'layer-handle-' + id;
   handle.className = 'drag-handle layer-drag-handle';
-  handle.style.cssText = `top:${(y / 1920 * 100).toFixed(2)}%;border-color:#a78bfa;`;
-  handle.innerHTML = `<span class="layer-handle-label" style="color:#c4b5fd">${text || '텍스트'}</span>`;
+  handle.style.cssText = `top:${(y / 1920 * 100).toFixed(2)}%;border-color:${highlightColor};`;
+  handle.innerHTML = `<span class="layer-handle-label" style="color:${highlightColor}">${text || '텍스트'}</span>`;
   wrap.appendChild(handle);
 
   handle.addEventListener('mousedown', e => {
@@ -794,42 +824,26 @@ async function requestTemplatePreview() {
 topicInput.addEventListener('input', () => { if (sourceFilename) debouncedPreview(); });
 sourceRefreshBtn.addEventListener('click', requestTemplatePreview);
 
-// TTS 속도 슬라이더
-const ttsSpeedSlider = document.getElementById('tts-speed-slider');
-const ttsSpeedLabel  = document.getElementById('tts-speed-label');
 ttsSpeedSlider.addEventListener('input', () => {
   const v = parseFloat(ttsSpeedSlider.value || '1.0').toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
   ttsSpeedLabel.textContent = v + 'x';
 });
 
 /* ====================================================
-   파이프라인 실행 (레이아웃 + TTS 공통)
+   레이아웃 파이프라인 실행
    ==================================================== */
 let pipelineTopic = '';
 
-function _resetPipelineUI() {
-  Object.values(PSTEPS).forEach(el => el.classList.remove('active', 'done'));
-  PSTEPS.voice?.classList.add('active');
-  pipelineFill.style.width  = '0%';
-  pipelineText.textContent  = '준비 중...';
-  pipelineEta.textContent   = '진행 중: 0초 경과';
-  pipelineEta.style.display = 'block';
-}
-
-async function runPipeline(useTts, script) {
-  if (!sourceFilename) { showToast('메인 소스 영상을 먼저 업로드해주세요.', 'error'); return; }
+async function runPipeline() {
+  if (!sourceFilename) { showToast('영상을 먼저 업로드해주세요.', 'error'); return; }
 
   pipelineTopic = topicInput.value.trim() || '숏츠';
-
-  // 버튼 비활성화
-  if (useTts) { approveScriptBtn.disabled = true; scriptCard.style.display = 'none'; }
-  else        { document.getElementById('layout-apply-btn').disabled = true; document.getElementById('layout-apply-card').style.display = 'none'; }
-
+  document.getElementById('layout-apply-btn').disabled = true;
+  document.getElementById('layout-apply-card').style.display = 'none';
   pipelineProgressCard.style.display = 'block';
   pipelineResultCard.style.display   = 'none';
-
-  if (useTts) _resetPipelineUI();
-  else { document.getElementById('pipeline-steps-wrap').style.display = 'none'; pipelineFill.style.width = '0%'; pipelineText.textContent = '준비 중...'; }
+  pipelineFill.style.width = '0%';
+  pipelineText.textContent = '준비 중...';
 
   const _start = Date.now();
   let _etaTimer = setInterval(() => {
@@ -840,17 +854,14 @@ async function runPipeline(useTts, script) {
   pipelineEta.style.display = 'block';
 
   try {
-    const res  = await fetch('/pipeline/run', {
+    const res = await fetch('/pipeline/run', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        script:          useTts ? stripScriptTags(script) : '',
-        topic:           pipelineTopic,
+        script: '', topic: pipelineTopic,
         template:        document.querySelector('input[name="template"]:checked')?.value || 'namnam',
         source_filename: sourceFilename,
-        use_tts:         useTts,
+        use_tts:         false,
         use_subtitle:    false,
-        tts_voice:       document.querySelector('input[name="tts-voice"]:checked')?.value || 'ko-KR-Neural2-C',
-        tts_speed:       parseFloat(ttsSpeedSlider?.value || 1.0),
         positions:       getPositions(),
         styles:          getStyles(),
         custom_layers:   customLayers,
@@ -862,7 +873,8 @@ async function runPipeline(useTts, script) {
       clearInterval(_etaTimer); pipelineEta.style.display = 'none';
       showToast(data.error || '실행 실패', 'error');
       pipelineProgressCard.style.display = 'none';
-      _restoreActionUI(useTts);
+      document.getElementById('layout-apply-btn').disabled = false;
+      document.getElementById('layout-apply-card').style.display = '';
       return;
     }
 
@@ -871,17 +883,16 @@ async function runPipeline(useTts, script) {
         clearInterval(_etaTimer); pipelineEta.style.display = 'none';
         pipelineText.textContent = '❌ ' + payload.error;
         pipelineProgressCard.style.display = 'none';
-        _restoreActionUI(useTts);
+        document.getElementById('layout-apply-btn').disabled = false;
+        document.getElementById('layout-apply-card').style.display = '';
         showToast('오류 발생', 'error');
         return;
       }
       pipelineFill.style.width = (payload.pct || 0) + '%';
       if (payload.msg) pipelineText.textContent = payload.msg;
-      if (useTts) _updatePipelineSteps(payload.pct || 0);
 
       if (payload.done) {
         clearInterval(_etaTimer);
-        Object.values(PSTEPS).forEach(el => { el.classList.remove('active'); el.classList.add('done'); });
         pipelineEta.style.display          = 'none';
         pipelineProgressCard.style.display = 'none';
         pipelineResultCard.style.display   = 'block';
@@ -897,55 +908,62 @@ async function runPipeline(useTts, script) {
     clearInterval(_etaTimer); pipelineEta.style.display = 'none';
     showToast('네트워크 오류', 'error');
     pipelineProgressCard.style.display = 'none';
-    _restoreActionUI(useTts);
+    document.getElementById('layout-apply-btn').disabled = false;
+    document.getElementById('layout-apply-card').style.display = '';
   }
 }
 
-function _restoreActionUI(useTts) {
-  if (useTts) { approveScriptBtn.disabled = false; scriptCard.style.display = ''; }
-  else        { document.getElementById('layout-apply-btn').disabled = false; document.getElementById('layout-apply-card').style.display = ''; }
-}
+document.getElementById('layout-apply-btn').addEventListener('click', runPipeline);
 
-function _updatePipelineSteps(pct) {
-  const steps = [{ el: PSTEPS.voice, done: 20 }, { el: PSTEPS.bg, done: 40 }, { el: PSTEPS.sub, done: 88 }, { el: PSTEPS.assemble, done: 100 }];
-  let reachedActive = false;
-  for (let i = steps.length - 1; i >= 0; i--) {
-    const { el, done } = steps[i];
-    if (pct >= done)       { el.classList.remove('active'); el.classList.add('done'); }
-    else if (!reachedActive) { el.classList.remove('done'); el.classList.add('active'); reachedActive = true; }
-    else                     { el.classList.remove('active', 'done'); }
+/* ====================================================
+   TTS 음성 생성
+   ==================================================== */
+document.getElementById('tts-generate-btn').addEventListener('click', async () => {
+  const text  = document.getElementById('tts-textarea').value.trim();
+  if (!text) { showToast('텍스트를 입력해주세요.', 'error'); return; }
+
+  const btn = document.getElementById('tts-generate-btn');
+  btn.disabled = true; btn.textContent = '⏳ 생성 중...';
+  document.getElementById('tts-result-card').style.display = 'none';
+
+  try {
+    const res  = await fetch('/tts/generate', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text,
+        voice: document.querySelector('input[name="tts-voice"]:checked')?.value || 'ko-KR-Neural2-C',
+        speed: parseFloat(ttsSpeedSlider.value || '1.0'),
+      }),
+    });
+    const data = await res.json();
+    if (!data.ok) { showToast(data.error || '생성 실패', 'error'); return; }
+
+    const audio = document.getElementById('tts-result-audio');
+    const dlBtn = document.getElementById('tts-download-btn');
+    audio.src = data.audio_url;
+    dlBtn.href = data.audio_url;
+    dlBtn.download = data.filename;
+    document.getElementById('tts-result-card').style.display = 'block';
+    audio.play();
+    showToast('음성 생성 완료!', 'success');
+  } catch {
+    showToast('네트워크 오류', 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = '🔊 음성 생성';
   }
-}
-
-// 레이아웃 적용 버튼
-document.getElementById('layout-apply-btn').addEventListener('click', () => {
-  runPipeline(false, '');
-});
-
-// TTS 제작 시작 버튼
-approveScriptBtn.addEventListener('click', () => {
-  const script = scriptTextarea.value.trim();
-  if (!script) { showToast('대본을 입력해주세요.', 'error'); return; }
-  runPipeline(true, script);
 });
 
 /* ====================================================
-   새 영상 만들기
+   레이아웃 완성 후 스튜디오 선택으로
    ==================================================== */
 pipelineNewBtn.addEventListener('click', () => {
-  uploadedFilename = null; originalBase = null; _uploadInfo = {}; sourceFilename = null; sourceDuration = 0;
-  document.getElementById('mode-select-card').style.display = 'none';
-  hideAllSections();
-  topicInput.value = ''; scriptTextarea.value = ''; pipelineTopic = '';
-  scriptCard.style.display = document.getElementById('layout-apply-card').style.display = 'none';
   pipelineResultCard.style.display = 'none';
-  approveScriptBtn.disabled = false;
+  document.getElementById('layout-apply-card').style.display = 'none';
   sourcePreviewWrap.style.display = 'none';
   document.getElementById('source-preview-loading').style.display = 'none';
+  topicInput.value = ''; pipelineTopic = '';
   seekSlider.value = 3; seekSlider.max = 30; seekLabel.textContent = '3.0s';
   customLayers = []; document.getElementById('custom-layers-container').innerHTML = '';
-  ttsSpeedSlider.value = 1.0; ttsSpeedLabel.textContent = '1.0x';
-  document.querySelector('input[name="tts-voice"][value="ko-KR-Neural2-C"]').checked = true;
   const nmRadio = document.querySelector('input[name="template"][value="namnam"]');
   if (nmRadio) { nmRadio.checked = true; applyTemplateSwitch('namnam'); }
   const posDefaults = { banner_h: 240, video_y_namnam: 240, title_y: 320, video_y_silver: 580, subtitle_y: 1720 };
@@ -954,64 +972,9 @@ pipelineNewBtn.addEventListener('click', () => {
     const sp  = document.getElementById(POS_YSPAN[key]); if (sp)  sp.textContent = v;
   });
   Object.entries({ banner_font_size: 60, title_font_size: 65, subtitle_font_size: 55 }).forEach(([key, v]) => setStyVal(key, v));
-  resetDrop();
-  document.getElementById('upload-card').scrollIntoView({ behavior: 'smooth' });
+  goToStudioSelect();
 });
 
-/* ====================================================
-   대본 저장 (.txt)
-   ==================================================== */
-downloadScriptBtn.addEventListener('click', () => {
-  const text = scriptTextarea.value.trim();
-  if (!text) { showToast('대본이 없습니다.', 'error'); return; }
-  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob); a.download = (topicInput.value.trim() || '대본') + '.txt'; a.click();
-  URL.revokeObjectURL(a.href);
-});
-
-/* ====================================================
-   맞춤법 교정
-   ==================================================== */
-document.getElementById('proofread-btn').addEventListener('click', async () => {
-  const text = scriptTextarea.value.trim();
-  if (!text) { showToast('대본을 먼저 입력해주세요.', 'error'); return; }
-  const btn = document.getElementById('proofread-btn');
-  btn.disabled = true; btn.textContent = '⏳ 교정 중...';
-  document.getElementById('proofread-result').style.display = 'none';
-  try {
-    const res  = await fetch('/proofread', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
-    const data = await res.json();
-    if (!data.ok) { showToast(data.error || '교정 실패', 'error'); return; }
-    const changesList = document.getElementById('proofread-changes');
-    changesList.innerHTML = '';
-    if (data.changes?.length) {
-      data.changes.forEach(c => { const li = document.createElement('li'); li.textContent = c; changesList.appendChild(li); });
-    } else {
-      const li = document.createElement('li'); li.textContent = '수정 사항 없음'; li.style.color = '#4ade80'; changesList.appendChild(li);
-    }
-    document.getElementById('proofread-corrected').value = data.corrected;
-    document.getElementById('proofread-result').style.display = 'block';
-    showToast('교정 완료!', 'success');
-  } catch { showToast('네트워크 오류', 'error'); }
-  finally { btn.disabled = false; btn.textContent = '✍️ 맞춤법 교정'; }
-});
-
-document.getElementById('proofread-apply-btn').addEventListener('click', () => {
-  const corrected = document.getElementById('proofread-corrected').value;
-  if (!corrected) return;
-  scriptTextarea.value = corrected;
-  document.getElementById('proofread-result').style.display = 'none';
-  showToast('교정 내용이 적용됐습니다.', 'success');
-});
-
-/* ====================================================
-   스크립트 태그 파싱 유틸
-   ==================================================== */
-const IRA_TAG_RE = /\(([^():]+):(\d+(?:\.\d+)?)[초s]\)/g;
-function stripScriptTags(script) {
-  return script.replace(/\([^():]+:\d+(?:\.\d+)?[초s]\)/g, '').replace(/\s{2,}/g, ' ').trim();
-}
 
 /* ====================================================
    파이프라인 설정 상태 확인
@@ -1030,24 +993,22 @@ checkPipelineConfig();
    ==================================================== */
 function goToStudioSelect() {
   hideAllSections();
+  document.getElementById('upload-card').style.display = 'none';
+  // 업로드 상태 초기화
+  uploadedFilename = null; originalBase = null; _uploadInfo = {};
+  sourceFilename = null; sourceDuration = 0; _pendingStudio = null;
+  resetDrop();
+  document.getElementById('video-info').style.display = 'none';
+  document.getElementById('video-info').innerHTML = '';
   document.getElementById('mode-select-card').style.display = 'block';
   document.getElementById('mode-select-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
-function goToStart() {
-  uploadedFilename = null; originalBase = null; _uploadInfo = {}; sourceFilename = null; sourceDuration = 0;
-  hideAllSections();
-  document.getElementById('mode-select-card').style.display = 'none';
-  resetDrop();
-  document.getElementById('video-info').style.display = 'none';
-  document.getElementById('video-info').innerHTML = '';
-  document.getElementById('upload-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
-}
-
-document.getElementById('narration-back-btn').addEventListener('click', goToStudioSelect);
+document.getElementById('layout-back-btn').addEventListener('click', goToStudioSelect);
 document.getElementById('crop-back-btn').addEventListener('click', goToStudioSelect);
 document.getElementById('subtitle-back-btn').addEventListener('click', goToStudioSelect);
-document.getElementById('crop-restart-btn').addEventListener('click', goToStart);
+document.getElementById('tts-back-btn').addEventListener('click', goToStudioSelect);
+document.getElementById('crop-restart-btn').addEventListener('click', goToStudioSelect);
 
 /* ====================================================
    자막 스튜디오
@@ -1090,8 +1051,10 @@ document.getElementById('subtitle-analyze-btn').addEventListener('click', async 
         document.getElementById('subtitle-progress-card').style.display = 'none';
         analyzeBtn.disabled = false;
         subtitleSegments = payload.segments;
-        renderSubtitleSegments();
+        const vid = document.getElementById('subtitle-preview-video');
+        if (uploadedFilename) vid.src = `/uploads/${encodeURIComponent(uploadedFilename)}`;
         document.getElementById('subtitle-editor-card').style.display = 'block';
+        renderSubtitleSegments();
         document.getElementById('subtitle-editor-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
         showToast(`자막 ${payload.segments.length}개 생성 완료!`, 'success');
       } else if (payload.done) {
@@ -1132,7 +1095,13 @@ function renderSubtitleSegments() {
     });
     const timing = document.createElement('div');
     timing.className = 'subtitle-timing';
+    timing.title = '클릭하면 해당 시점으로 이동';
+    timing.style.cursor = 'pointer';
     timing.textContent = `${_secToSrtTime(seg.start)}  →  ${_secToSrtTime(seg.end)}`;
+    timing.addEventListener('click', () => {
+      const vid = document.getElementById('subtitle-preview-video');
+      if (vid) { vid.currentTime = seg.start; vid.play(); }
+    });
     row.appendChild(timing);
     row.appendChild(ta);
     wrap.appendChild(row);

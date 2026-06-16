@@ -915,6 +915,28 @@ def proofread():
         return jsonify({'ok': False, 'error': str(e)}), 500
 
 
+@app.route('/tts/generate', methods=['POST'])
+def tts_generate():
+    """텍스트 → edge-tts mp3 파일 생성"""
+    data  = request.get_json(force=True) or {}
+    text  = (data.get('text') or '').strip()
+    voice = (data.get('voice') or 'ko-KR-Neural2-C').strip()
+    speed = max(0.25, min(4.0, float(data.get('speed') or 1.0)))
+
+    if not text:
+        return jsonify({'ok': False, 'error': '텍스트를 입력해주세요.'}), 400
+
+    try:
+        from auto_pipeline.generate_voice import generate_voice
+        out_name = f'tts_{uuid.uuid4().hex[:8]}.mp3'
+        out_path = os.path.join(config.OUTPUT_FOLDER, out_name)
+        generate_voice(text, out_path, speaker=voice, speed=speed)
+        return jsonify({'ok': True, 'audio_url': f'/download/{out_name}', 'filename': out_name})
+    except Exception as e:
+        log_error(e)
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
 @app.route('/subtitle/analyze', methods=['POST'])
 def subtitle_analyze():
     """영상 오디오를 Whisper로 분석해 편집 가능한 세그먼트 JSON을 반환한다."""
