@@ -34,7 +34,6 @@ const cropBox            = document.getElementById('crop-box');
 const lock916            = document.getElementById('lock-916');
 const resetBtn           = document.getElementById('reset-btn');
 const processBtn         = document.getElementById('process-btn');
-const transcribeBtn      = document.getElementById('transcribe-btn');
 const progressSec        = document.getElementById('progress-section');
 const progressFill       = document.getElementById('progress-fill');
 const progressText       = document.getElementById('progress-text');
@@ -461,28 +460,6 @@ processBtn.addEventListener('click', async () => {
   } catch { hideProgress(); processBtn.disabled = false; showToast('오류가 발생했습니다.', 'error'); }
 });
 
-/* ====================================================
-   대본 추출 (크롭 스튜디오 내 기능)
-   ==================================================== */
-transcribeBtn.addEventListener('click', async () => {
-  if (!uploadedFilename) return;
-  transcribeBtn.disabled = true;
-  showProgress('대본 추출 준비 중...', 0);
-  try {
-    const res  = await fetch('/transcribe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filename: uploadedFilename, original_base: originalBase }) });
-    const data = await res.json();
-    if (!data.ok) { showToast(data.error || '대본 추출 실패', 'error'); hideProgress(); transcribeBtn.disabled = false; return; }
-    subscribeProgress(data.job_id, payload => {
-      if (payload.error) { showToast(payload.error, 'error'); hideProgress(); transcribeBtn.disabled = false; return; }
-      updateProgress(payload.pct, payload.msg || '대본 추출 중...');
-      if (payload.done && payload.srt) {
-        hideProgress();
-        const a = document.createElement('a'); a.href = `/download/${encodeURIComponent(payload.srt)}`; a.download = payload.srt; a.click();
-        showToast('대본 추출 완료!', 'success'); transcribeBtn.disabled = false;
-      }
-    });
-  } catch { hideProgress(); transcribeBtn.disabled = false; showToast('오류가 발생했습니다.', 'error'); }
-});
 
 /* ====================================================
    YouTube 가져오기
