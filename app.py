@@ -114,11 +114,13 @@ def make_output_name(base: str, mode: str = 'crop') -> str:
 
 
 def make_srt_name(base: str) -> str:
-    """날짜_원본명_transcript_N.srt 형식, 중복 시 N 증가."""
-    date_str = datetime.now().strftime('%Y%m%d_%H%M%S')
-    n = 1
+    """원본명_자막.srt 형식, 중복 시 _N 추가."""
+    name = f'{base}_자막.srt'
+    if not os.path.exists(os.path.join(config.OUTPUT_FOLDER, name)):
+        return name
+    n = 2
     while True:
-        name = f'{date_str}_{base}_transcript_{n}.srt'
+        name = f'{base}_자막_{n}.srt'
         if not os.path.exists(os.path.join(config.OUTPUT_FOLDER, name)):
             return name
         n += 1

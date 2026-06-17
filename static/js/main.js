@@ -199,8 +199,10 @@ function uploadFile(file) {
     showToast('업로드 완료!', 'success');
 
     if (_pendingStudio === 'crop') {
+      document.getElementById('crop-section').style.display = 'block';
       requestAnimationFrame(() => initCropUI(uploadedFilename, _uploadInfo));
     } else if (_pendingStudio === 'layout') {
+      document.getElementById('layout-section').style.display = 'block';
       _initLayoutAfterUpload();
       requestAnimationFrame(() =>
         document.getElementById('layout-section').scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -485,8 +487,10 @@ async function fetchYoutube() {
     showToast('YouTube 영상 준비 완료!', 'success'); ytUrl.value = '';
 
     if (_pendingStudio === 'crop') {
+      document.getElementById('crop-section').style.display = 'block';
       requestAnimationFrame(() => initCropUI(uploadedFilename, _uploadInfo));
     } else if (_pendingStudio === 'layout') {
+      document.getElementById('layout-section').style.display = 'block';
       _initLayoutAfterUpload();
       requestAnimationFrame(() =>
         document.getElementById('layout-section').scrollIntoView({ behavior: 'smooth', block: 'start' })
