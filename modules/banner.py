@@ -36,21 +36,27 @@ def _hex_to_rgb(hex_str: str) -> tuple:
     return COLOR_WHITE_RGB
 
 
-def _draw_layer_bar(img: Image.Image, text: str, y: int, font, color_rgb: tuple) -> None:
-    """가로 전체 너비 바 + 중앙 정렬 텍스트를 img에 직접 합성합니다."""
-    draw  = ImageDraw.Draw(img)
-    bbox  = font.getbbox('가')
-    th    = bbox[3] - bbox[1]
-    pad   = max(int(th * 0.45), 16)
-    bar_h = th + pad * 2
+def _draw_layer_bar(img: Image.Image, text: str, y: int, font,
+                    highlight_color: str = None, base_color: str = None) -> None:
+    """첫 단어 강조색 / 나머지 기본색 — 배경 없이 텍스트만 중앙 출력"""
+    h_rgb = _hex_to_rgb(highlight_color) if highlight_color else COLOR_YELLOW_RGB
+    b_rgb = _hex_to_rgb(base_color)      if base_color      else COLOR_WHITE_RGB
 
-    bar = Image.new('RGBA', (VIDEO_W, bar_h), (20, 20, 20, 210))
-    img.paste(bar, (0, y), bar)
+    draw = ImageDraw.Draw(img)
+    bbox = font.getbbox('가')
+    pad  = max(int((bbox[3] - bbox[1]) * 0.45), 16)
 
-    lw = draw.textlength(text, font=font)
-    tx = (VIDEO_W - lw) / 2
+    parts      = text.split(' ', 1)
+    first_word = parts[0]
+    rest_text  = (' ' + parts[1]) if len(parts) > 1 else ''
+
+    yw = draw.textlength(first_word, font=font)
+    ww = draw.textlength(rest_text,  font=font) if rest_text else 0
+    tx = (VIDEO_W - yw - ww) / 2
     ty = y + pad - bbox[1]
-    draw.text((tx, ty), text, font=font, fill=(*color_rgb, 255))
+
+    draw.text((tx,      ty), first_word, font=font, fill=(*h_rgb, 255))
+    draw.text((tx + yw, ty), rest_text,  font=font, fill=(*b_rgb, 255))
 
 
 def generate_banner_png(title: str, out_path: str, tpl_key: str = 'namnam',
@@ -113,16 +119,17 @@ def generate_title_overlay_png(title: str, out_path: str, tpl_key: str = 'silver
 
 
 def generate_custom_layers_png(layers: list, out_path: str) -> str:
-    """커스텀 텍스트 레이어를 가로줄(바) 스타일로 1080×1920 투명 PNG에 렌더링"""
+    """커스텀 텍스트 레이어를 렌더링 — 레이어별 색상 지원"""
     img = Image.new('RGBA', (VIDEO_W, VIDEO_H), (0, 0, 0, 0))
     for layer in layers:
         text = (layer.get('text') or '').strip()
         if not text:
             continue
-        font      = _load_font(int(layer.get('font_size', 50)))
-        y         = int(layer.get('y', 500))
-        color_rgb = _hex_to_rgb(layer.get('color') or '#FFFFFF')
-        _draw_layer_bar(img, text, y, font, color_rgb)
+        font = _load_font(int(layer.get('font_size', 50)))
+        y    = int(layer.get('y', 500))
+        _draw_layer_bar(img, text, y, font,
+                        highlight_color=layer.get('highlight_color'),
+                        base_color=layer.get('base_color'))
     img.save(out_path, 'PNG')
     return out_path
 
@@ -158,10 +165,11 @@ def generate_template_preview(video_path: str, out_path: str,
                 text = (layer.get('text') or '').strip()
                 if not text:
                     continue
-                font      = _load_font(int(layer.get('font_size', 50)))
-                y         = int(layer.get('y', 500))
-                color_rgb = _hex_to_rgb(layer.get('color') or '#FFFFFF')
-                _draw_layer_bar(result, text, y, font, color_rgb)
+                font = _load_font(int(layer.get('font_size', 50)))
+                y    = int(layer.get('y', 500))
+                _draw_layer_bar(result, text, y, font,
+                                highlight_color=layer.get('highlight_color'),
+                                base_color=layer.get('base_color'))
             result.convert('RGB').save(out_path, 'JPEG', quality=88)
     finally:
         try:

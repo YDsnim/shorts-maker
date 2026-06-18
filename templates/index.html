@@ -15,8 +15,8 @@
 
 <main>
 
-  <!-- ── 1단계: 영상 올리기 ──────────────────────────── -->
-  <div class="card" id="upload-card">
+  <!-- 영상 올리기 (스튜디오 진입 후 표시) -->
+  <div class="card" id="upload-card" style="display:none">
     <div class="card-title"><span class="icon">📁</span> 영상 올리기</div>
 
     <div id="drop-zone">
@@ -41,35 +41,48 @@
     <div id="video-info"></div>
   </div>
 
-  <!-- ── 2단계: 모드 선택 (업로드 후 표시) ─────────────── -->
-  <div class="card" id="mode-select-card" style="display:none">
-    <div class="card-title"><span class="icon">🎬</span> 무엇을 만들까요?</div>
-    <div style="display:flex;gap:8px">
-      <button class="btn btn-primary" id="mode-btn-narration"
-              style="flex:1;padding:18px 8px;line-height:1.6">
-        🎤 내레이션 영상 만들기<br>
-        <span style="font-size:.75rem;font-weight:400;opacity:.8">대본 + 음성 + 자막 합성</span>
+  <!-- 스튜디오 선택 (첫 화면) -->
+  <div class="card" id="mode-select-card">
+    <div class="card-title"><span class="icon">🎬</span> 스튜디오 선택</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <button class="btn btn-outline mode-btn" id="mode-btn-crop">
+        <span class="mode-btn-name">✂️ 크롭</span>
+        <span class="mode-btn-name">스튜디오</span>
+        <span class="mode-btn-desc">가로→세로 변환</span>
       </button>
-      <button class="btn btn-outline" id="mode-btn-crop"
-              style="flex:1;padding:18px 8px;line-height:1.6">
-        ✂️ 크롭 &amp; 배경 변환<br>
-        <span style="font-size:.75rem;font-weight:400;opacity:.8">가로→세로 포맷 변환</span>
+      <button class="btn btn-outline mode-btn" id="mode-btn-layout">
+        <span class="mode-btn-name">🎨 레이아웃</span>
+        <span class="mode-btn-name">스튜디오</span>
+        <span class="mode-btn-desc">템플릿·텍스트 오버레이</span>
+      </button>
+      <button class="btn btn-outline mode-btn" id="mode-btn-tts">
+        <span class="mode-btn-name">🎤 TTS</span>
+        <span class="mode-btn-name">스튜디오</span>
+        <span class="mode-btn-desc">텍스트 → 음성 파일</span>
+      </button>
+      <button class="btn btn-outline mode-btn" id="mode-btn-subtitle">
+        <span class="mode-btn-name">📝 자막</span>
+        <span class="mode-btn-name">스튜디오</span>
+        <span class="mode-btn-desc">음성 분석·편집·SRT</span>
       </button>
     </div>
   </div>
 
-  <!-- ════════════════════════════════════════════════ -->
-  <!--  내레이션 영상 만들기                             -->
-  <!-- ════════════════════════════════════════════════ -->
-  <div id="narration-section" style="display:none">
+  <!-- ════════════════════════════════════════════════════ -->
+  <!--  레이아웃 스튜디오                                    -->
+  <!-- ════════════════════════════════════════════════════ -->
+  <div id="layout-section" style="display:none">
 
-    <!-- API 키 경고 -->
+    <div style="position:sticky;top:0;z-index:50;background:var(--bg);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:8px 0;margin-bottom:4px">
+      <button class="btn-back" id="layout-back-btn">← 스튜디오 선택</button>
+      <span style="font-size:.95rem;font-weight:700;color:var(--accent)">🎨 레이아웃 스튜디오</span>
+      <div style="width:96px"></div>
+    </div>
+
     <div id="api-warning" class="warning-banner" style="display:none"></div>
 
-    <!-- 영상 제목 + 템플릿 선택 -->
+    <!-- 템플릿 선택 -->
     <div class="card" id="topic-card">
-
-      <!-- 템플릿 선택 -->
       <div class="card-title"><span class="icon">🎨</span> 템플릿 선택</div>
       <div style="display:flex;gap:8px">
         <label id="tpl-namnam" style="flex:1;display:flex;align-items:center;gap:8px;padding:10px 14px;border:1.5px solid var(--accent);border-radius:8px;cursor:pointer;background:var(--accent-bg,rgba(99,102,241,.08))">
@@ -81,245 +94,163 @@
           <span style="font-size:.9rem;font-weight:600">실버크라운</span>
         </label>
       </div>
+    </div>
 
-      <!-- 영상 제목 -->
-      <div style="font-size:.8rem;color:var(--text-muted);margin:14px 0 6px">영상 제목</div>
-      <input type="text" id="topic-input"
-             placeholder=""
-             autocomplete="off" maxlength="100"
-             style="width:100%;padding:10px 12px;font-size:1rem;border:1.5px solid var(--border);border-radius:8px;background:var(--input-bg);color:var(--text);box-sizing:border-box">
-
-
-    <!-- 레이아웃 미리보기 + 드래그 핸들 -->
+    <!-- 레이아웃 미리보기 + 텍스트 컨트롤 -->
     <div class="card" id="source-card">
       <div class="card-title"><span class="icon">🎥</span> 레이아웃 조정</div>
 
-      <!-- 미리보기 로딩 중 -->
       <div id="source-preview-loading" style="display:none;text-align:center;padding:24px;color:var(--text-muted);font-size:.85rem">
         미리보기 생성 중...
       </div>
 
       <div id="source-preview-wrap" style="display:none">
-        <div style="font-size:.8rem;color:var(--text-muted);margin-bottom:8px">
-          선을 드래그 → 위치 조정 &nbsp;|&nbsp; <span style="color:var(--accent)">−/+</span> → 글자 크기
+        <div style="display:flex;gap:14px;align-items:flex-start">
+
+          <!-- 좌: 미리보기 -->
+          <div style="flex:0 0 50%;min-width:0">
+            <div style="font-size:.75rem;color:var(--text-muted);margin-bottom:6px">
+              선 드래그 → 위치 &nbsp;|&nbsp; <span style="color:var(--accent)">−/+</span> → 크기
+            </div>
+
+            <div id="preview-drag-wrap" style="width:100%;margin:0">
+              <img id="source-preview-img" alt="미리보기">
+
+              <div class="drag-handle" id="dh-title-nm"
+                   data-key="banner_h" data-sty="banner_font_size"
+                   data-min="80" data-max="500" data-default="240"
+                   data-nm="1" data-sc="0"
+                   style="border-color:#FFCC00;top:12.5%">
+                <span class="dh-badge">
+                  <span class="dh-name">제목</span>
+                  <button class="sz-btn" data-sty="banner_font_size" data-delta="-2">−</button>
+                  <span class="sz-num" id="szn-banner">60</span>pt
+                  <button class="sz-btn" data-sty="banner_font_size" data-delta="2">+</button>
+                </span>
+                <span class="dh-yval" id="dhv-banner-h">240</span>
+              </div>
+
+              <div class="drag-handle" id="dh-title-sc"
+                   data-key="title_y" data-sty="title_font_size"
+                   data-min="0" data-max="700" data-default="320"
+                   data-nm="0" data-sc="1"
+                   style="border-color:#FFCC00;top:16.7%;display:none">
+                <span class="dh-badge">
+                  <span class="dh-name">제목</span>
+                  <button class="sz-btn" data-sty="title_font_size" data-delta="-2">−</button>
+                  <span class="sz-num" id="szn-title">65</span>pt
+                  <button class="sz-btn" data-sty="title_font_size" data-delta="2">+</button>
+                </span>
+                <span class="dh-yval" id="dhv-title-y">320</span>
+              </div>
+
+              <div class="drag-handle" id="dh-video-nm"
+                   data-key="video_y_namnam"
+                   data-min="80" data-max="900" data-default="240"
+                   data-nm="1" data-sc="0"
+                   style="border-color:#4ade80;top:12.5%">
+                <span class="dh-badge"><span class="dh-name">영상</span></span>
+                <span class="dh-yval" id="dhv-video-y-nm">240</span>
+              </div>
+
+              <div class="drag-handle" id="dh-video-sc"
+                   data-key="video_y_silver"
+                   data-min="100" data-max="1200" data-default="580"
+                   data-nm="0" data-sc="1"
+                   style="border-color:#4ade80;top:30.2%;display:none">
+                <span class="dh-badge"><span class="dh-name">영상</span></span>
+                <span class="dh-yval" id="dhv-video-y-sc">580</span>
+              </div>
+
+              <div class="drag-handle" id="dh-subtitle"
+                   data-key="subtitle_y"
+                   data-min="800" data-max="1880" data-default="1720"
+                   data-nm="1" data-sc="1"
+                   style="border-color:#38bdf8;top:89.6%">
+                <span class="dh-badge">
+                  <span class="dh-name">자막</span>
+                  <button class="sz-btn" data-sty="subtitle_font_size" data-delta="-2">−</button>
+                  <span class="sz-num" id="szn-subtitle">55</span>pt
+                  <button class="sz-btn" data-sty="subtitle_font_size" data-delta="2">+</button>
+                </span>
+                <span class="dh-yval" id="dhv-subtitle-y">1720</span>
+              </div>
+            </div>
+
+            <div style="margin-top:8px;display:flex;align-items:center;gap:6px">
+              <span style="font-size:.7rem;color:var(--text-muted);white-space:nowrap">시점</span>
+              <input type="range" id="preview-seek-slider" min="0" max="30" step="0.5" value="3" style="flex:1">
+              <span id="preview-seek-label" style="font-size:.7rem;color:var(--accent);min-width:32px;text-align:right">3.0s</span>
+            </div>
+
+            <p id="source-filename-label" style="font-size:.7rem;color:var(--text-muted);text-align:center;margin-top:4px"></p>
+            <button class="btn btn-outline" id="source-refresh-btn" style="margin-top:8px;width:100%;font-size:.82rem;padding:7px 0">🔄 갱신</button>
+          </div>
+
+          <!-- 우: 텍스트 컨트롤 -->
+          <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:12px">
+            <div>
+              <div style="font-size:.75rem;color:var(--text-muted);margin-bottom:5px">영상 제목</div>
+              <input type="text" id="topic-input" placeholder="" autocomplete="off" maxlength="100"
+                     style="width:100%;padding:8px 10px;font-size:.9rem;border:1.5px solid var(--border);border-radius:8px;background:var(--input-bg);color:var(--text);box-sizing:border-box">
+            </div>
+
+            <div>
+              <div style="font-size:.75rem;color:var(--text-muted);margin-bottom:5px">추가 텍스트</div>
+              <button class="btn btn-outline" id="add-text-layer-btn" style="width:100%;font-size:.82rem;padding:7px 0">＋ 레이어 추가</button>
+              <div id="custom-layers-container" style="margin-top:8px;display:flex;flex-direction:column;gap:8px"></div>
+            </div>
+          </div>
+
         </div>
 
-        <div id="preview-drag-wrap">
-          <img id="source-preview-img" alt="미리보기">
-
-          <!-- 제목 (냠냠=배너하단, 실버=title_y) -->
-          <div class="drag-handle" id="dh-title-nm"
-               data-key="banner_h" data-sty="banner_font_size"
-               data-min="80" data-max="500" data-default="240"
-               data-nm="1" data-sc="0"
-               style="border-color:#FFCC00;top:12.5%">
-            <span class="dh-badge">
-              <span class="dh-name">제목</span>
-              <button class="sz-btn" data-sty="banner_font_size" data-delta="-2">−</button>
-              <span class="sz-num" id="szn-banner">60</span>pt
-              <button class="sz-btn" data-sty="banner_font_size" data-delta="2">+</button>
-            </span>
-            <span class="dh-yval" id="dhv-banner-h">240</span>
-          </div>
-
-          <div class="drag-handle" id="dh-title-sc"
-               data-key="title_y" data-sty="title_font_size"
-               data-min="0" data-max="700" data-default="320"
-               data-nm="0" data-sc="1"
-               style="border-color:#FFCC00;top:16.7%;display:none">
-            <span class="dh-badge">
-              <span class="dh-name">제목</span>
-              <button class="sz-btn" data-sty="title_font_size" data-delta="-2">−</button>
-              <span class="sz-num" id="szn-title">65</span>pt
-              <button class="sz-btn" data-sty="title_font_size" data-delta="2">+</button>
-            </span>
-            <span class="dh-yval" id="dhv-title-y">320</span>
-          </div>
-
-          <div class="drag-handle" id="dh-video-nm"
-               data-key="video_y_namnam"
-               data-min="80" data-max="900" data-default="240"
-               data-nm="1" data-sc="0"
-               style="border-color:#4ade80;top:12.5%">
-            <span class="dh-badge"><span class="dh-name">영상</span></span>
-            <span class="dh-yval" id="dhv-video-y-nm">240</span>
-          </div>
-
-          <div class="drag-handle" id="dh-video-sc"
-               data-key="video_y_silver"
-               data-min="100" data-max="1200" data-default="580"
-               data-nm="0" data-sc="1"
-               style="border-color:#4ade80;top:30.2%;display:none">
-            <span class="dh-badge"><span class="dh-name">영상</span></span>
-            <span class="dh-yval" id="dhv-video-y-sc">580</span>
-          </div>
-
-          <!-- 자막 -->
-          <div class="drag-handle" id="dh-subtitle"
-               data-key="subtitle_y"
-               data-min="800" data-max="1880" data-default="1720"
-               data-nm="1" data-sc="1"
-               style="border-color:#38bdf8;top:89.6%">
-            <span class="dh-badge">
-              <span class="dh-name">자막</span>
-              <button class="sz-btn" data-sty="subtitle_font_size" data-delta="-2">−</button>
-              <span class="sz-num" id="szn-subtitle">55</span>pt
-              <button class="sz-btn" data-sty="subtitle_font_size" data-delta="2">+</button>
-            </span>
-            <span class="dh-yval" id="dhv-subtitle-y">1720</span>
-          </div>
-
-        </div>
-
-        <!-- 미리보기 시점 슬라이더 -->
-        <div style="margin-top:10px;display:flex;align-items:center;gap:8px">
-          <span style="font-size:.75rem;color:var(--text-muted);white-space:nowrap">미리보기 시점</span>
-          <input type="range" id="preview-seek-slider" min="0" max="30" step="0.5" value="3" style="flex:1">
-          <span id="preview-seek-label" style="font-size:.75rem;color:var(--accent);min-width:38px;text-align:right">3.0s</span>
-        </div>
-
-        <p id="source-filename-label" style="font-size:.75rem;color:var(--text-muted);text-align:center;margin-top:6px"></p>
-        <button class="btn btn-outline" id="source-refresh-btn" style="margin-top:10px;width:100%">🔄 미리보기 갱신</button>
+        <!-- 위치/크기 hidden inputs -->
+        <input type="hidden" id="pos-banner-h"       value="240">
+        <input type="hidden" id="pos-video-y-namnam" value="240">
+        <input type="hidden" id="pos-title-y"        value="320">
+        <input type="hidden" id="pos-video-y-silver" value="580">
+        <input type="hidden" id="pos-subtitle-y"     value="1720">
+        <input type="hidden" id="sty-banner-size"    value="60">
+        <input type="hidden" id="sty-title-size"     value="65">
+        <input type="hidden" id="sty-subtitle-size"  value="55">
       </div>
-
-      <!-- 커스텀 텍스트 레이어 -->
-      <div style="margin-top:12px">
-        <button class="btn btn-outline" id="add-text-layer-btn" style="width:100%">＋ 텍스트 레이어 추가</button>
-        <div id="custom-layers-container" style="margin-top:8px;display:flex;flex-direction:column;gap:8px"></div>
-      </div>
-
-      <!-- 위치값 저장용 hidden inputs -->
-      <input type="hidden" id="pos-banner-h"       value="240">
-      <input type="hidden" id="pos-video-y-namnam" value="240">
-      <input type="hidden" id="pos-title-y"        value="320">
-      <input type="hidden" id="pos-video-y-silver" value="580">
-      <input type="hidden" id="pos-subtitle-y"     value="1720">
-      <!-- 폰트 크기 hidden inputs -->
-      <input type="hidden" id="sty-banner-size"    value="60">
-      <input type="hidden" id="sty-title-size"     value="65">
-      <input type="hidden" id="sty-subtitle-size"  value="55">
     </div>
 
-    <!-- 대본 + 음성 설정 -->
-    <div class="card" id="script-card">
-      <div class="card-title"><span class="icon">📝</span> 대본 입력</div>
-      <textarea id="script-textarea" rows="9"
-                placeholder="대본을 입력하세요."></textarea>
-      <div style="display:flex;gap:8px;margin-top:10px">
-        <button class="btn btn-outline" id="upload-script-btn" style="flex:1">
-          📂 파일 업로드 (.txt/.srt)
-        </button>
-        <button class="btn btn-outline" id="download-script-btn" style="flex:1">
-          📄 스크립트 저장 (.txt)
-        </button>
-      </div>
-      <input type="file" id="script-file-input" accept=".txt,.srt" style="display:none">
-
-      <button class="btn btn-outline" id="proofread-btn" style="margin-top:8px;width:100%">
-        ✍️ 맞춤법 교정
-      </button>
-
-      <!-- 교정 결과 패널 -->
-      <div id="proofread-result" style="display:none;margin-top:12px;background:var(--input-bg);border:1.5px solid var(--border);border-radius:10px;padding:14px">
-        <div style="font-size:.8rem;color:var(--text-muted);margin-bottom:6px">교정 결과</div>
-        <ul id="proofread-changes" style="font-size:.82rem;color:#f59e0b;margin:0 0 10px 16px;padding:0;line-height:1.7"></ul>
-        <textarea id="proofread-corrected" rows="6" readonly
-          style="width:100%;background:#0f0f1a;border:1px solid var(--border);border-radius:8px;padding:10px;font-size:.9rem;color:var(--text);box-sizing:border-box;resize:vertical"></textarea>
-        <button class="btn btn-success" id="proofread-apply-btn" style="margin-top:10px;width:100%">
-          ✅ 교정 내용 적용
-        </button>
-      </div>
-
-      <!-- TTS 토글 -->
-      <label class="toggle-label" style="margin-top:14px;display:flex;align-items:center;gap:10px">
-        <input type="checkbox" id="use-tts-toggle" checked>
-        <span class="toggle-pill"></span>
-        <span style="font-size:.9rem">TTS 음성 생성 <span style="color:var(--text-muted);font-size:.8rem">(끄면 원본 오디오 사용)</span></span>
-      </label>
-
-      <!-- TTS 목소리 + 속도 (TTS 켜져 있을 때만 표시) -->
-      <div id="tts-voice-controls" style="margin-top:12px;padding:12px;background:var(--surface-2,#1e1e2a);border-radius:8px">
-        <div style="font-size:.8rem;color:var(--text-muted);margin-bottom:8px">목소리 선택</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
-          <label style="display:flex;align-items:center;gap:6px;font-size:.85rem;cursor:pointer">
-            <input type="radio" name="tts-voice" value="ko-KR-Neural2-C" checked style="accent-color:var(--accent)"> 여성 (또렷)
-          </label>
-          <label style="display:flex;align-items:center;gap:6px;font-size:.85rem;cursor:pointer">
-            <input type="radio" name="tts-voice" value="ko-KR-Neural2-A" style="accent-color:var(--accent)"> 여성 (밝음)
-          </label>
-          <label style="display:flex;align-items:center;gap:6px;font-size:.85rem;cursor:pointer">
-            <input type="radio" name="tts-voice" value="ko-KR-Neural2-B" style="accent-color:var(--accent)"> 남성 (안정)
-          </label>
-          <label style="display:flex;align-items:center;gap:6px;font-size:.85rem;cursor:pointer">
-            <input type="radio" name="tts-voice" value="ko-KR-Neural2-D" style="accent-color:var(--accent)"> 남성 (활기)
-          </label>
-        </div>
-        <div style="display:flex;align-items:center;gap:8px;margin-top:10px">
-          <span style="font-size:.8rem;color:var(--text-muted);white-space:nowrap">말하기 속도</span>
-          <input type="range" id="tts-speed-slider" min="0.75" max="1.5" step="0.05" value="1.0" style="flex:1">
-          <span id="tts-speed-label" style="font-size:.8rem;color:var(--accent);min-width:38px;text-align:right">1.0x</span>
-        </div>
-      </div>
-
-      <!-- 자막 토글 -->
-      <label class="toggle-label" style="margin-top:10px;display:flex;align-items:center;gap:10px">
-        <input type="checkbox" id="use-subtitle-toggle" checked>
-        <span class="toggle-pill"></span>
-        <span style="font-size:.9rem">자막 포함 <span style="color:var(--text-muted);font-size:.8rem">(끄면 자막 없이 제작)</span></span>
-      </label>
-
-      <button class="btn btn-success" id="approve-script-btn" style="margin-top:12px">🎬 제작 시작</button>
+    <!-- 레이아웃 적용 버튼 -->
+    <div id="layout-apply-card" class="card" style="display:none">
+      <button class="btn btn-success" id="layout-apply-btn" style="width:100%">🎨 레이아웃 적용</button>
     </div>
 
     <!-- 제작 진행 -->
     <div class="card" id="pipeline-progress-card" style="display:none">
       <div class="card-title"><span class="icon">⚙️</span> 제작 중...</div>
-      <div class="pipeline-steps">
-        <div class="pipeline-step" id="pstep-voice">🔊<br>음성</div>
-        <div class="pipeline-step-arrow">→</div>
-        <div class="pipeline-step" id="pstep-bg">🎥<br>배경</div>
-        <div class="pipeline-step-arrow">→</div>
-        <div class="pipeline-step" id="pstep-sub">📝<br>자막</div>
-        <div class="pipeline-step-arrow">→</div>
-        <div class="pipeline-step" id="pstep-assemble">🎬<br>조립</div>
-      </div>
-      <div class="progress-bar-wrap" style="margin-top:14px">
+      <div class="progress-bar-wrap" style="margin-top:4px">
         <div class="progress-bar" id="pipeline-fill"></div>
       </div>
-      <p id="pipeline-text" style="font-size:.85rem;color:var(--text-muted);text-align:center;margin-top:8px">
-        준비 중...
-      </p>
+      <p id="pipeline-text" style="font-size:.85rem;color:var(--text-muted);text-align:center;margin-top:8px">준비 중...</p>
       <p id="pipeline-eta" style="display:none;font-size:.78rem;color:var(--accent);text-align:center;margin-top:2px"></p>
     </div>
 
     <!-- 완성 -->
     <div class="card" id="pipeline-result-card" style="display:none">
-      <div class="card-title"><span class="icon">🎉</span> 숏츠 완성!</div>
+      <div class="card-title"><span class="icon">🎉</span> 완성!</div>
       <video id="pipeline-result-video" controls playsinline
              style="width:100%;max-height:400px;border-radius:10px;background:#000;display:none;margin-bottom:10px"></video>
-      <a id="pipeline-download-btn" class="btn btn-success" href="#" download>
-        📥 숏츠 다운로드
-      </a>
-      <a id="srt-download-btn" class="btn btn-outline" href="#" download style="display:none;margin-top:8px">
-        📄 자막(SRT) 다운로드
-      </a>
-      <div id="srt-preview" style="display:none;margin-top:14px">
-        <div style="font-size:.8rem;color:var(--text-muted);margin-bottom:6px">자막 타이밍 미리보기</div>
-        <pre id="srt-content" style="background:#1a1a24;border-radius:8px;padding:12px;font-size:.78rem;color:#a0a0c0;max-height:200px;overflow-y:auto;white-space:pre-wrap;margin:0"></pre>
-      </div>
-      <button class="btn btn-outline" id="pipeline-new-btn" style="margin-top:8px">
-        ➕ 새 영상 만들기
-      </button>
+      <a id="pipeline-download-btn" class="btn btn-success" href="#" download>📥 영상 다운로드</a>
+      <button class="btn btn-outline" id="pipeline-new-btn" style="margin-top:8px;width:100%">← 스튜디오 선택으로</button>
     </div>
 
-  </div><!-- /narration-section -->
+  </div><!-- /layout-section -->
 
-  <!-- ════════════════════════════════════════════════ -->
-  <!--  크롭 & 배경 변환                                -->
-  <!-- ════════════════════════════════════════════════ -->
+  <!-- ════════════════════════════════════════════════════ -->
+  <!--  크롭 스튜디오                                       -->
+  <!-- ════════════════════════════════════════════════════ -->
   <div id="crop-section" style="display:none">
 
-    <!-- 영역 선택 -->
+    <div style="position:sticky;top:0;z-index:50;background:var(--bg);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:8px 0;margin-bottom:4px">
+      <button class="btn-back" id="crop-back-btn">← 스튜디오 선택</button>
+    </div>
+
     <div class="card" id="edit-card">
       <div class="card-title"><span class="icon">✂️</span> 영역 선택</div>
 
@@ -348,14 +279,12 @@
       <div id="crop-dims">— × — px</div>
       <div id="ratio-badge" style="display:none" class="badge-ok">이미 9:16 비율입니다</div>
 
-      <!-- 배경 처리 선택 -->
       <div class="bg-selector">
         <button class="bg-btn active" data-bg="none">✂️ 크롭만</button>
         <button class="bg-btn" data-bg="blur">🌫 블러 배경</button>
         <button class="bg-btn" data-bg="solid">🎨 단색 배경</button>
       </div>
 
-      <!-- 블러 설정 -->
       <div id="blur-controls" style="display:none">
         <div class="slider-row">
           <span class="slider-label">블러 강도</span>
@@ -365,7 +294,6 @@
         <button class="btn btn-outline" id="blur-preview-btn" style="margin-top:14px">🔍 미리보기</button>
       </div>
 
-      <!-- 단색 설정 -->
       <div id="solid-controls" style="display:none">
         <div class="color-presets">
           <button class="color-preset active" data-color="000000" style="background:#000000" title="검정"></button>
@@ -380,7 +308,6 @@
         <button class="btn btn-outline" id="solid-preview-btn" style="margin-top:14px">🔍 미리보기</button>
       </div>
 
-      <!-- 미리보기 이미지 (블러·단색) -->
       <div class="preview-wrap" id="preview-wrap" style="display:none">
         <div class="preview-grid">
           <div class="preview-item"><img id="preview-img-1" alt="미리보기 1"><span class="preview-label" id="preview-label-1"></span></div>
@@ -390,13 +317,10 @@
       </div>
     </div>
 
-    <!-- 크롭 적용 버튼 -->
     <div id="action-card">
       <button class="btn btn-primary" id="process-btn">✂️ 크롭 적용</button>
-      <button class="btn btn-outline" id="transcribe-btn">📝 대본 추출</button>
     </div>
 
-    <!-- 진행 표시 -->
     <div class="card" id="progress-section" style="display:none">
       <div class="progress-bar-wrap">
         <div class="progress-bar" id="progress-fill"></div>
@@ -404,14 +328,127 @@
       <p id="progress-text">처리 중입니다...</p>
     </div>
 
-    <!-- 결과 -->
     <div class="card" id="result-section" style="display:none">
       <div class="card-title"><span class="icon">✅</span> 변환 완료!</div>
       <a id="download-btn" class="btn btn-success" href="#" download>📥 완성된 영상 다운로드</a>
-      <p class="result-hint">다운로드 후 다른 영역으로 다시 변환하려면 영상을 다시 업로드해 주세요.</p>
+      <button class="btn btn-outline" id="crop-restart-btn" style="margin-top:8px;width:100%">
+        ↩ 처음으로
+      </button>
     </div>
 
   </div><!-- /crop-section -->
+
+  <!-- ════════════════════════════════════════════════════ -->
+  <!--  자막 스튜디오                                       -->
+  <!-- ════════════════════════════════════════════════════ -->
+  <div id="subtitle-section" style="display:none">
+
+    <div style="position:sticky;top:0;z-index:50;background:var(--bg);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:8px 0;margin-bottom:4px">
+      <button class="btn-back" id="subtitle-back-btn">← 스튜디오 선택</button>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><span class="icon">📝</span> 자막 스튜디오</div>
+      <p style="font-size:.85rem;color:var(--text-muted);margin-bottom:14px">
+        영상의 음성을 자동으로 인식해 자막을 생성합니다.<br>
+        인식 결과를 직접 편집한 뒤 SRT 파일로 내보낼 수 있습니다.
+      </p>
+      <button class="btn btn-primary" id="subtitle-analyze-btn" style="width:100%">
+        🔍 음성 분석 시작
+      </button>
+    </div>
+
+    <div class="card" id="subtitle-progress-card" style="display:none">
+      <div class="card-title"><span class="icon">⚙️</span> 분석 중...</div>
+      <div class="progress-bar-wrap">
+        <div class="progress-bar indeterminate" id="subtitle-progress-fill"></div>
+      </div>
+      <p id="subtitle-progress-text" style="font-size:.85rem;color:var(--text-muted);text-align:center;margin-top:8px">
+        준비 중...
+      </p>
+    </div>
+
+    <div class="card" id="subtitle-editor-card" style="display:none">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <div class="card-title" style="margin:0"><span class="icon">✏️</span> 자막 편집</div>
+        <button class="btn btn-success" id="subtitle-export-btn" style="padding:8px 16px;font-size:.85rem">
+          📥 SRT 다운로드
+        </button>
+      </div>
+
+      <div style="display:flex;gap:14px;align-items:flex-start">
+
+        <!-- 좌: 비디오 플레이어 -->
+        <div style="flex:0 0 42%;min-width:0">
+          <video id="subtitle-preview-video"
+                 controls playsinline
+                 style="width:100%;border-radius:8px;background:#000;display:block">
+          </video>
+          <p style="font-size:.7rem;color:var(--text-muted);text-align:center;margin-top:6px">
+            타이밍 클릭 → 해당 시점으로 이동
+          </p>
+        </div>
+
+        <!-- 우: 자막 목록 -->
+        <div style="flex:1;min-width:0">
+          <div id="subtitle-segments-wrap"
+               style="display:flex;flex-direction:column;gap:6px;max-height:65vh;overflow-y:auto;padding-right:2px">
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </div><!-- /subtitle-section -->
+
+  <!-- ════════════════════════════════════════════════════ -->
+  <!--  TTS 스튜디오                                        -->
+  <!-- ════════════════════════════════════════════════════ -->
+  <div id="tts-section" style="display:none">
+
+    <div style="position:sticky;top:0;z-index:50;background:var(--bg);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:8px 0;margin-bottom:4px">
+      <button class="btn-back" id="tts-back-btn">← 스튜디오 선택</button>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><span class="icon">🎤</span> TTS 스튜디오</div>
+
+      <textarea id="tts-textarea" rows="8" placeholder="변환할 텍스트를 입력하세요."
+                style="width:100%;resize:vertical;box-sizing:border-box"></textarea>
+
+      <div style="margin-top:12px;padding:12px;background:var(--surface-2,#1e1e2a);border-radius:8px">
+        <div style="font-size:.8rem;color:var(--text-muted);margin-bottom:8px">목소리 선택</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+          <label style="display:flex;align-items:center;gap:6px;font-size:.85rem;cursor:pointer">
+            <input type="radio" name="tts-voice" value="ko-KR-Neural2-C" checked style="accent-color:var(--accent)"> 여성 (또렷)
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:.85rem;cursor:pointer">
+            <input type="radio" name="tts-voice" value="ko-KR-Neural2-A" style="accent-color:var(--accent)"> 여성 (밝음)
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:.85rem;cursor:pointer">
+            <input type="radio" name="tts-voice" value="ko-KR-Neural2-B" style="accent-color:var(--accent)"> 남성 (안정)
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:.85rem;cursor:pointer">
+            <input type="radio" name="tts-voice" value="ko-KR-Neural2-D" style="accent-color:var(--accent)"> 남성 (활기)
+          </label>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:10px">
+          <span style="font-size:.8rem;color:var(--text-muted);white-space:nowrap">말하기 속도</span>
+          <input type="range" id="tts-speed-slider" min="0.75" max="1.5" step="0.05" value="1.0" style="flex:1">
+          <span id="tts-speed-label" style="font-size:.8rem;color:var(--accent);min-width:38px;text-align:right">1.0x</span>
+        </div>
+      </div>
+
+      <button class="btn btn-success" id="tts-generate-btn" style="margin-top:12px;width:100%">🔊 음성 생성</button>
+    </div>
+
+    <div class="card" id="tts-result-card" style="display:none">
+      <div class="card-title"><span class="icon">✅</span> 생성 완료!</div>
+      <audio id="tts-result-audio" controls style="width:100%;margin-bottom:12px"></audio>
+      <a id="tts-download-btn" class="btn btn-success" href="#" download>📥 음성 다운로드 (mp3)</a>
+    </div>
+
+  </div><!-- /tts-section -->
 
 </main>
 
