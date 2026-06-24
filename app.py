@@ -60,6 +60,7 @@ _last_cleanup  = 0.0
 
 # Whisper 모델 캐시: 처음 요청 시 로드한 뒤 메모리에 유지
 _whisper_model = None
+_whisper_lock  = threading.Lock()   # 동시 추론 충돌 방지
 
 # 백그라운드 작업 레지스트리
 # job_id → { pct, done, error, result, original, srt, msg }
@@ -91,7 +92,7 @@ def sanitize_base(name: str) -> str:
 
 def make_upload_name(base: str, ext: str, suffix: str = '') -> str:
     """날짜_원본명[_suffix].ext 형식으로 업로드 파일명을 생성한다. 충돌 시 카운터 추가."""
-    date_str = datetime.now().strftime('%Y%m%d_%H%M%S')
+    date_str = datetime.now().strftime('%y%m%d_%H%M%S')
     stem     = f'{date_str}_{base}' + (f'_{suffix}' if suffix else '')
     filename = f'{stem}.{ext}'
     n = 2
@@ -103,7 +104,7 @@ def make_upload_name(base: str, ext: str, suffix: str = '') -> str:
 
 def make_output_name(base: str, mode: str = 'crop') -> str:
     """날짜_원본명_모드_N.mp4 형식. 같은 이름이 이미 있으면 N을 올린다."""
-    date_str = datetime.now().strftime('%Y%m%d_%H%M%S')
+    date_str = datetime.now().strftime('%y%m%d_%H%M%S')
     n = 1
     while True:
         name = f'{date_str}_{base}_{mode}_{n}.mp4'
@@ -113,11 +114,13 @@ def make_output_name(base: str, mode: str = 'crop') -> str:
 
 
 def make_srt_name(base: str) -> str:
-    """날짜_원본명_transcript_N.srt 형식, 중복 시 N 증가."""
-    date_str = datetime.now().strftime('%Y%m%d_%H%M%S')
-    n = 1
+    """원본명_자막.srt 형식, 중복 시 _N 추가."""
+    name = f'{base}_자막.srt'
+    if not os.path.exists(os.path.join(config.OUTPUT_FOLDER, name)):
+        return name
+    n = 2
     while True:
-        name = f'{date_str}_{base}_transcript_{n}.srt'
+        name = f'{base}_자막_{n}.srt'
         if not os.path.exists(os.path.join(config.OUTPUT_FOLDER, name)):
             return name
         n += 1
@@ -278,6 +281,11 @@ def index():
     return render_template('index.html')
 
 
+@app.route('/favicon.ico')
+def favicon():
+    return '', 204
+
+
 @app.route('/uploads/<filename>')
 def serve_upload(filename: str):
     """업로드된 원본 영상을 스트리밍한다 (크롭 UI 미리보기용)."""
@@ -402,6 +410,10 @@ def process():
     if bg_mode == 'none' and not crop:
         return jsonify({'ok': False, 'error': '크롭 정보가 없습니다.'}), 400
 
+    # crop이 있어도 w/h가 0이면 ffmpeg 오류 → 사전 차단
+    if crop and (int(crop.get('w', 0)) <= 0 or int(crop.get('h', 0)) <= 0):
+        return jsonify({'ok': False, 'error': '크롭 영역의 너비 또는 높이가 0입니다.'}), 400
+
     mode_label  = {'none': 'crop', 'blur': 'blur', 'solid': 'color'}.get(bg_mode, 'crop')
     result_name = make_output_name(original_base, mode_label)
     result_path = os.path.join(config.OUTPUT_FOLDER, result_name)
@@ -477,6 +489,7 @@ def progress_stream(job_id: str):
                 payload['result']   = job.get('result')
                 payload['original'] = job.get('original')
                 payload['srt']      = job.get('srt')
+                payload['segments'] = job.get('segments')
 
             yield f'data: {json.dumps(payload)}\n\n'
 
@@ -584,18 +597,18 @@ def transcribe():
     def _run_transcribe():
         try:
             _jobs[job_id].update({'msg': '모델 준비 중... (1/3)', 'pct': 10})
-            model = get_whisper_model()
-
-            _jobs[job_id].update({'msg': '음성 인식 중... (2/3)', 'pct': 30})
-            segments, _ = model.transcribe(
-                _path, language='ko',
-                vad_filter=True,
-                vad_parameters={'min_silence_duration_ms': 300},
-                condition_on_previous_text=False,
-                no_speech_threshold=0.6,
-                initial_prompt='안녕하세요.',
-            )
-            segments = list(segments)
+            with _whisper_lock:
+                model = get_whisper_model()
+                _jobs[job_id].update({'msg': '음성 인식 중... (2/3)', 'pct': 30})
+                segments, _ = model.transcribe(
+                    _path, language='ko',
+                    vad_filter=True,
+                    vad_parameters={'min_silence_duration_ms': 300},
+                    condition_on_previous_text=False,
+                    no_speech_threshold=0.6,
+                    initial_prompt='안녕하세요.',
+                )
+                segments = list(segments)
 
             _jobs[job_id].update({'msg': 'SRT 저장 중... (3/3)', 'pct': 90})
             srt_name = make_srt_name(_base)
@@ -820,10 +833,7 @@ def pipeline_run():
                             use_tts=use_tts, overlay_specs=[],
                             positions=positions, styles=styles,
                             use_subtitle=use_subtitle, custom_layers=custom_layers)
-            _jobs[job_id].update({'srt': srt_name})
-
-            # assemble_stages 내부에서 pct=100, done=True 로 설정함
-            _jobs[job_id].update({'result': result_name})
+            # srt·done 은 assemble_stages 내부에서 원자적으로 설정됨
 
         except Exception as e:
             log_error(e)
@@ -877,7 +887,7 @@ def proofread():
         )
 
         msg = client.messages.create(
-            model='claude-haiku-4-5-20251001',
+            model=pc.CLAUDE_MODEL,
             max_tokens=4096,
             messages=[{"role": "user", "content": prompt}],
         )
@@ -907,10 +917,119 @@ def proofread():
         return jsonify({'ok': False, 'error': str(e)}), 500
 
 
+@app.route('/tts/generate', methods=['POST'])
+def tts_generate():
+    """텍스트 → edge-tts mp3 파일 생성"""
+    data  = request.get_json(force=True) or {}
+    text  = (data.get('text') or '').strip()
+    voice = (data.get('voice') or 'ko-KR-Neural2-C').strip()
+    speed = max(0.25, min(4.0, float(data.get('speed') or 1.0)))
+
+    if not text:
+        return jsonify({'ok': False, 'error': '텍스트를 입력해주세요.'}), 400
+
+    try:
+        from auto_pipeline.generate_voice import generate_voice
+        out_name = f'tts_{uuid.uuid4().hex[:8]}.mp3'
+        out_path = os.path.join(config.OUTPUT_FOLDER, out_name)
+        generate_voice(text, out_path, speaker=voice, speed=speed)
+        return jsonify({'ok': True, 'audio_url': f'/download/{out_name}', 'filename': out_name})
+    except Exception as e:
+        log_error(e)
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/subtitle/analyze', methods=['POST'])
+def subtitle_analyze():
+    """영상 오디오를 Whisper로 분석해 편집 가능한 세그먼트 JSON을 반환한다."""
+    data          = request.get_json(force=True)
+    filename      = data.get('filename', '')
+    original_base = sanitize_base(data.get('original_base', '') or 'video')
+
+    if not filename or not safe_filename(filename):
+        return jsonify({'ok': False, 'error': '잘못된 파일명'}), 400
+
+    path = os.path.join(config.OUTPUT_FOLDER, filename)
+    if not os.path.exists(path):
+        path = os.path.join(config.UPLOAD_FOLDER, filename)
+    if not os.path.exists(path):
+        return jsonify({'ok': False, 'error': '파일을 찾을 수 없습니다.'}), 404
+
+    job_id = uuid.uuid4().hex[:8]
+    _jobs[job_id] = {
+        'pct': 0, 'done': False, 'error': None,
+        'result': None, 'original': None, 'srt': None,
+        'segments': None, 'msg': '준비 중...',
+    }
+
+    _path = path
+
+    def _run():
+        try:
+            _jobs[job_id].update({'msg': '모델 준비 중... (1/2)', 'pct': 10})
+            with _whisper_lock:
+                model = get_whisper_model()
+                _jobs[job_id].update({'msg': '음성 인식 중... (2/2)', 'pct': 30})
+                segments, _ = model.transcribe(
+                    _path, language='ko',
+                    vad_filter=True,
+                    vad_parameters={'min_silence_duration_ms': 300},
+                    condition_on_previous_text=False,
+                    no_speech_threshold=0.6,
+                    initial_prompt='안녕하세요.',
+                )
+                segs = [
+                    {'id': i, 'start': round(s.start, 3), 'end': round(s.end, 3), 'text': s.text.strip()}
+                    for i, s in enumerate(list(segments), 1)
+                ]
+            _jobs[job_id].update({
+                'pct': 100, 'done': True,
+                'finished_at': time.time(),
+                'segments': segs,
+                'msg': '완료',
+            })
+        except ModuleNotFoundError:
+            _jobs[job_id].update({'done': True, 'finished_at': time.time(),
+                                  'error': 'faster-whisper가 설치되지 않았습니다.'})
+        except Exception as e:
+            log_error(e)
+            _jobs[job_id].update({'done': True, 'finished_at': time.time(), 'error': str(e)})
+
+    threading.Thread(target=_run, daemon=True).start()
+    return jsonify({'ok': True, 'job_id': job_id})
+
+
+@app.route('/subtitle/export-srt', methods=['POST'])
+def subtitle_export_srt():
+    """클라이언트에서 편집한 세그먼트를 SRT 파일로 저장하고 다운로드 URL을 반환한다."""
+    data          = request.get_json(force=True)
+    segments      = data.get('segments', [])
+    filename_base = sanitize_base(data.get('filename_base', '') or 'subtitle')
+
+    if not segments:
+        return jsonify({'ok': False, 'error': '자막 데이터가 없습니다.'}), 400
+
+    lines = []
+    for seg in segments:
+        start = _sec_to_srt_time(float(seg.get('start', 0)))
+        end   = _sec_to_srt_time(float(seg.get('end',   0)))
+        text  = (seg.get('text') or '').strip()
+        if text:
+            lines.append(f"{seg['id']}\n{start} --> {end}\n{text}")
+
+    srt_content = '\n\n'.join(lines) + '\n'
+    srt_name    = make_srt_name(filename_base)
+    srt_path    = os.path.join(config.OUTPUT_FOLDER, srt_name)
+    with open(srt_path, 'w', encoding='utf-8') as f:
+        f.write(srt_content)
+
+    return jsonify({'ok': True, 'srt': srt_name})
+
+
 def _make_pipeline_name(base: str) -> str:
     """주제앞8자_날짜_N.mp4 형식, output/ 에 이미 있으면 N을 올린다."""
     from datetime import date
-    today  = date.today().strftime('%Y%m%d')
+    today  = date.today().strftime('%y%m%d')
     short  = base[:8] if base else 'shorts'
     n = 1
     while True:
@@ -922,9 +1041,10 @@ def _make_pipeline_name(base: str) -> str:
 
 # ── 실행 ────────────────────────────────────────────
 if __name__ == '__main__':
-    print("=" * 45)
-    print("  숏츠 메이커 →  http://localhost:5000")
-    print("  종료: Ctrl+C")
-    print("=" * 45)
+    if os.environ.get('WERKZEUG_RUN_MAIN') != 'true':
+        print("=" * 45)
+        print("  숏츠 메이커 →  http://localhost:5000")
+        print("  종료: Ctrl+C")
+        print("=" * 45)
     # threaded=True: SSE 스트리밍과 백그라운드 작업을 위해 필수
     app.run(debug=True, host='0.0.0.0', port=5000, threaded=True)
