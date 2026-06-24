@@ -92,7 +92,7 @@ def sanitize_base(name: str) -> str:
 
 def make_upload_name(base: str, ext: str, suffix: str = '') -> str:
     """날짜_원본명[_suffix].ext 형식으로 업로드 파일명을 생성한다. 충돌 시 카운터 추가."""
-    date_str = datetime.now().strftime('%Y%m%d_%H%M%S')
+    date_str = datetime.now().strftime('%y%m%d_%H%M%S')
     stem     = f'{date_str}_{base}' + (f'_{suffix}' if suffix else '')
     filename = f'{stem}.{ext}'
     n = 2
@@ -104,7 +104,7 @@ def make_upload_name(base: str, ext: str, suffix: str = '') -> str:
 
 def make_output_name(base: str, mode: str = 'crop') -> str:
     """날짜_원본명_모드_N.mp4 형식. 같은 이름이 이미 있으면 N을 올린다."""
-    date_str = datetime.now().strftime('%Y%m%d_%H%M%S')
+    date_str = datetime.now().strftime('%y%m%d_%H%M%S')
     n = 1
     while True:
         name = f'{date_str}_{base}_{mode}_{n}.mp4'
@@ -1029,7 +1029,7 @@ def subtitle_export_srt():
 def _make_pipeline_name(base: str) -> str:
     """주제앞8자_날짜_N.mp4 형식, output/ 에 이미 있으면 N을 올린다."""
     from datetime import date
-    today  = date.today().strftime('%Y%m%d')
+    today  = date.today().strftime('%y%m%d')
     short  = base[:8] if base else 'shorts'
     n = 1
     while True:

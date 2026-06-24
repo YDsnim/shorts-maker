@@ -44,6 +44,11 @@
   <!-- 스튜디오 선택 (첫 화면) -->
   <div class="card" id="mode-select-card">
     <div class="card-title"><span class="icon">🎬</span> 스튜디오 선택</div>
+    <div id="loaded-video-bar" style="display:none;align-items:center;gap:10px;background:rgba(99,102,241,.1);border:1px solid rgba(99,102,241,.3);border-radius:8px;padding:8px 12px;margin-bottom:10px;">
+      <span style="font-size:.8rem;color:#a5b4fc;white-space:nowrap;">📹 로드됨</span>
+      <span id="loaded-video-name" style="flex:1;font-size:.85rem;color:#e2e8f0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
+      <button id="clear-video-btn" style="background:none;border:1px solid #555;border-radius:6px;color:#888;padding:3px 10px;cursor:pointer;font-size:.8rem;white-space:nowrap;">✕ 다른 영상</button>
+    </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
       <button class="btn btn-outline mode-btn" id="mode-btn-crop">
         <span class="mode-btn-name">✂️ 크롭</span>
@@ -76,7 +81,7 @@
     <div style="position:sticky;top:0;z-index:50;background:var(--bg);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:8px 0;margin-bottom:4px">
       <button class="btn-back" id="layout-back-btn">← 스튜디오 선택</button>
       <span style="font-size:.95rem;font-weight:700;color:var(--accent)">🎨 레이아웃 스튜디오</span>
-      <div style="width:96px"></div>
+      <button class="btn-ghost" id="layout-change-btn">📁 영상 교체</button>
     </div>
 
     <div id="api-warning" class="warning-banner" style="display:none"></div>
@@ -247,8 +252,9 @@
   <!-- ════════════════════════════════════════════════════ -->
   <div id="crop-section" style="display:none">
 
-    <div style="position:sticky;top:0;z-index:50;background:var(--bg);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:8px 0;margin-bottom:4px">
+    <div style="position:sticky;top:0;z-index:50;background:var(--bg);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:8px 0;margin-bottom:4px">
       <button class="btn-back" id="crop-back-btn">← 스튜디오 선택</button>
+      <button class="btn-ghost" id="crop-change-btn">📁 영상 교체</button>
     </div>
 
     <div class="card" id="edit-card">
@@ -274,7 +280,7 @@
           <span class="toggle-pill"></span>
           9:16 비율 고정
         </label>
-        <button class="btn-ghost" id="reset-btn">초기화</button>
+        <button class="btn-ghost" id="reset-btn">선택영역 초기화</button>
       </div>
       <div id="crop-dims">— × — px</div>
       <div id="ratio-badge" style="display:none" class="badge-ok">이미 9:16 비율입니다</div>
@@ -343,8 +349,9 @@
   <!-- ════════════════════════════════════════════════════ -->
   <div id="subtitle-section" style="display:none">
 
-    <div style="position:sticky;top:0;z-index:50;background:var(--bg);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:8px 0;margin-bottom:4px">
+    <div style="position:sticky;top:0;z-index:50;background:var(--bg);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:8px 0;margin-bottom:4px">
       <button class="btn-back" id="subtitle-back-btn">← 스튜디오 선택</button>
+      <button class="btn-ghost" id="subtitle-change-btn">📁 영상 교체</button>
     </div>
 
     <div class="card">

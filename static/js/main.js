@@ -106,14 +106,29 @@ function _initLayoutAfterUpload() {
 document.getElementById('mode-btn-crop').addEventListener('click', () => {
   hideAllSections();
   document.getElementById('crop-section').style.display = 'block';
-  _showUploadFor('crop');
+  if (uploadedFilename) {
+    document.getElementById('mode-select-card').style.display = 'none';
+    _pendingStudio = 'crop';
+    requestAnimationFrame(() => initCropUI(uploadedFilename, _uploadInfo));
+  } else {
+    _showUploadFor('crop');
+  }
 });
 
 document.getElementById('mode-btn-layout').addEventListener('click', () => {
   hideAllSections();
-  document.getElementById('layout-apply-card').style.display = 'none';
   document.getElementById('layout-section').style.display = 'block';
-  _showUploadFor('layout');
+  if (uploadedFilename) {
+    document.getElementById('mode-select-card').style.display = 'none';
+    _pendingStudio = 'layout';
+    _initLayoutAfterUpload();
+    requestAnimationFrame(() =>
+      document.getElementById('layout-section').scrollIntoView({ behavior: 'smooth', block: 'start' })
+    );
+  } else {
+    document.getElementById('layout-apply-card').style.display = 'none';
+    _showUploadFor('layout');
+  }
 });
 
 document.getElementById('mode-btn-tts').addEventListener('click', () => {
@@ -128,7 +143,15 @@ document.getElementById('mode-btn-tts').addEventListener('click', () => {
 document.getElementById('mode-btn-subtitle').addEventListener('click', () => {
   hideAllSections();
   document.getElementById('subtitle-section').style.display = 'block';
-  _showUploadFor('subtitle');
+  if (uploadedFilename) {
+    document.getElementById('mode-select-card').style.display = 'none';
+    _pendingStudio = 'subtitle';
+    requestAnimationFrame(() =>
+      document.getElementById('subtitle-section').scrollIntoView({ behavior: 'smooth', block: 'start' })
+    );
+  } else {
+    _showUploadFor('subtitle');
+  }
 });
 
 /* ====================================================
@@ -196,6 +219,7 @@ function uploadFile(file) {
     }
 
     document.getElementById('upload-card').style.display = 'none';
+    _updateLoadedVideoBar();
     showToast('업로드 완료!', 'success');
 
     if (_pendingStudio === 'crop') {
@@ -484,6 +508,7 @@ async function fetchYoutube() {
     if (info.width) { document.getElementById('video-info').style.display = 'flex'; document.getElementById('video-info').innerHTML = `해상도 <span>${info.width}×${info.height}</span> &nbsp; 길이 <span>${info.duration_str}</span>`; }
     dropZone.innerHTML = `<strong>✅ ${data.original_base}</strong><p style="color:var(--success)">${info.duration_str ? info.duration_str + ' · ' : ''}${info.width ? info.width + '×' + info.height : ''}</p>`;
     document.getElementById('upload-card').style.display = 'none';
+    _updateLoadedVideoBar();
     showToast('YouTube 영상 준비 완료!', 'success'); ytUrl.value = '';
 
     if (_pendingStudio === 'crop') {
@@ -960,24 +985,7 @@ document.getElementById('tts-generate-btn').addEventListener('click', async () =
 /* ====================================================
    레이아웃 완성 후 스튜디오 선택으로
    ==================================================== */
-pipelineNewBtn.addEventListener('click', () => {
-  pipelineResultCard.style.display = 'none';
-  document.getElementById('layout-apply-card').style.display = 'none';
-  sourcePreviewWrap.style.display = 'none';
-  document.getElementById('source-preview-loading').style.display = 'none';
-  topicInput.value = ''; pipelineTopic = '';
-  seekSlider.value = 3; seekSlider.max = 30; seekLabel.textContent = '3.0s';
-  customLayers = []; document.getElementById('custom-layers-container').innerHTML = '';
-  const nmRadio = document.querySelector('input[name="template"][value="namnam"]');
-  if (nmRadio) { nmRadio.checked = true; applyTemplateSwitch('namnam'); }
-  const posDefaults = { banner_h: 240, video_y_namnam: 240, title_y: 320, video_y_silver: 580, subtitle_y: 1720 };
-  Object.entries(posDefaults).forEach(([key, v]) => {
-    const inp = document.getElementById(POS_INPUT[key]); if (inp) inp.value = v;
-    const sp  = document.getElementById(POS_YSPAN[key]); if (sp)  sp.textContent = v;
-  });
-  Object.entries({ banner_font_size: 60, title_font_size: 65, subtitle_font_size: 55 }).forEach(([key, v]) => setStyVal(key, v));
-  goToStudioSelect();
-});
+pipelineNewBtn.addEventListener('click', goToStudioSelect);
 
 
 /* ====================================================
@@ -995,24 +1003,93 @@ checkPipelineConfig();
 /* ====================================================
    뒤로 / 처음으로 버튼
    ==================================================== */
-function goToStudioSelect() {
-  hideAllSections();
-  document.getElementById('upload-card').style.display = 'none';
-  // 업로드 상태 초기화
+function _updateLoadedVideoBar() {
+  const bar    = document.getElementById('loaded-video-bar');
+  const nameEl = document.getElementById('loaded-video-name');
+  if (uploadedFilename && originalBase) {
+    nameEl.textContent = originalBase;
+    bar.style.display = 'flex';
+  } else {
+    bar.style.display = 'none';
+  }
+}
+
+function clearVideoState() {
   uploadedFilename = null; originalBase = null; _uploadInfo = {};
-  sourceFilename = null; sourceDuration = 0; _pendingStudio = null;
+  sourceFilename = null; sourceDuration = 0;
+  videoDim = { w: 0, h: 0 }; cropPx = { x: 0, y: 0, w: 0, h: 0 };
   resetDrop();
   document.getElementById('video-info').style.display = 'none';
   document.getElementById('video-info').innerHTML = '';
+  _updateLoadedVideoBar();
+}
+
+function goToStudioSelect() {
+  hideAllSections();
+  document.getElementById('upload-card').style.display = 'none';
+  _pendingStudio = null;
+
+  // 크롭 섹션 리셋
+  resultSec.style.display = 'none';
+  hideProgress();
+  previewWrap.style.display = 'none';
+  previewImgs.forEach(img => { if (img.src?.startsWith('blob:')) { URL.revokeObjectURL(img.src); img.src = ''; } });
+  previewVideo.removeAttribute('src'); previewVideo.load();
+  bgMode = 'none';
+  document.querySelectorAll('.bg-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('blur-controls').style.display  = 'none';
+  document.getElementById('solid-controls').style.display = 'none';
+
+  // 레이아웃 섹션 리셋
+  sourcePreviewWrap.style.display = 'none';
+  document.getElementById('source-preview-loading').style.display = 'none';
+  document.getElementById('layout-apply-card').style.display = 'none';
+  pipelineProgressCard.style.display = 'none';
+  pipelineResultCard.style.display   = 'none';
+  topicInput.value = ''; pipelineTopic = '';
+  seekSlider.value = 3; seekSlider.max = 30; seekLabel.textContent = '3.0s';
+  customLayers = [];
+  document.getElementById('custom-layers-container').innerHTML = '';
+  document.getElementById('preview-drag-wrap').querySelectorAll('.layer-drag-handle').forEach(h => h.remove());
+  const nmRadio = document.querySelector('input[name="template"][value="namnam"]');
+  if (nmRadio) { nmRadio.checked = true; applyTemplateSwitch('namnam'); }
+  const posDefaults = { banner_h: 240, video_y_namnam: 240, title_y: 320, video_y_silver: 580, subtitle_y: 1720 };
+  Object.entries(posDefaults).forEach(([key, v]) => {
+    const inp = document.getElementById(POS_INPUT[key]); if (inp) inp.value = v;
+    const sp  = document.getElementById(POS_YSPAN[key]); if (sp)  sp.textContent = v;
+  });
+  Object.entries({ banner_font_size: 60, title_font_size: 65, subtitle_font_size: 55 }).forEach(([key, v]) => setStyVal(key, v));
+
+  // 자막 섹션 리셋
+  subtitleSegments = [];
+  document.getElementById('subtitle-progress-card').style.display = 'none';
+  document.getElementById('subtitle-editor-card').style.display   = 'none';
+
+  _updateLoadedVideoBar();
   document.getElementById('mode-select-card').style.display = 'block';
   document.getElementById('mode-select-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
+
+document.getElementById('clear-video-btn').addEventListener('click', clearVideoState);
 
 document.getElementById('layout-back-btn').addEventListener('click', goToStudioSelect);
 document.getElementById('crop-back-btn').addEventListener('click', goToStudioSelect);
 document.getElementById('subtitle-back-btn').addEventListener('click', goToStudioSelect);
 document.getElementById('tts-back-btn').addEventListener('click', goToStudioSelect);
 document.getElementById('crop-restart-btn').addEventListener('click', goToStudioSelect);
+
+document.getElementById('crop-change-btn').addEventListener('click', () => {
+  clearVideoState();
+  _showUploadFor('crop');
+});
+document.getElementById('layout-change-btn').addEventListener('click', () => {
+  clearVideoState();
+  _showUploadFor('layout');
+});
+document.getElementById('subtitle-change-btn').addEventListener('click', () => {
+  clearVideoState();
+  _showUploadFor('subtitle');
+});
 
 /* ====================================================
    자막 스튜디오
